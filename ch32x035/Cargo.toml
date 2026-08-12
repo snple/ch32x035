@@ -1,0 +1,28 @@
+[package]
+name = "ch32x035"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Hardware Abstraction Layer for the CH32X035 (WCH RISC-V QingKe V4C)"
+keywords = ["ch32x035", "wch", "hal", "embedded", "risc-v", "no-std"]
+categories = ["embedded", "hardware-support", "no-std"]
+
+[dependencies]
+ch32x035-rt.workspace = true
+ch32x035-pac.workspace = true
+ch32x035-macro.workspace = true
+paste.workspace = true
+enumflags2.workspace = true
+critical-section.workspace = true
+defmt = { workspace = true, optional = true }
+
+[features]
+default = ["defmt", "critical-section-impl", "panic-handler"]
+defmt = ["dep:defmt"]
+critical-section-impl = []
+panic-handler = []
+run-from-ram = ["ch32x035-rt/run-from-ram"]
+
+[package.metadata.docs.rs]
+features = ["defmt"]
+targets = ["riscv32imac-unknown-none-elf"]

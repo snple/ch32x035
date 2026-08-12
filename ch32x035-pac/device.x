@@ -1,0 +1,41 @@
+/* Device-specific interrupt handlers - to be provided by the application */
+/* These are weak symbols that default to DefaultHandler */
+
+PROVIDE(WWDG_IRQ = DefaultHandler);
+PROVIDE(PVD_IRQ = DefaultHandler);
+PROVIDE(FLASH_IRQ = DefaultHandler);
+PROVIDE(EXTI7_0_IRQ = DefaultHandler);
+PROVIDE(AWU_IRQ = DefaultHandler);
+PROVIDE(DMA1_CHANNEL1_IRQ = DefaultHandler);
+PROVIDE(DMA1_CHANNEL2_IRQ = DefaultHandler);
+PROVIDE(DMA1_CHANNEL3_IRQ = DefaultHandler);
+PROVIDE(DMA1_CHANNEL4_IRQ = DefaultHandler);
+PROVIDE(DMA1_CHANNEL5_IRQ = DefaultHandler);
+PROVIDE(DMA1_CHANNEL6_IRQ = DefaultHandler);
+PROVIDE(DMA1_CHANNEL7_IRQ = DefaultHandler);
+PROVIDE(ADC1_IRQ = DefaultHandler);
+PROVIDE(I2C1_EV_IRQ = DefaultHandler);
+PROVIDE(I2C1_ER_IRQ = DefaultHandler);
+PROVIDE(USART1_IRQ = DefaultHandler);
+PROVIDE(SPI1_IRQ = DefaultHandler);
+PROVIDE(TIM1_BRK_IRQ = DefaultHandler);
+PROVIDE(TIM1_UP_IRQ = DefaultHandler);
+PROVIDE(TIM1_TRG_COM_IRQ = DefaultHandler);
+PROVIDE(TIM1_CC_IRQ = DefaultHandler);
+PROVIDE(TIM2_UP_IRQ = DefaultHandler);
+PROVIDE(USART2_IRQ = DefaultHandler);
+PROVIDE(EXTI15_8_IRQ = DefaultHandler);
+PROVIDE(EXTI25_16_IRQ = DefaultHandler);
+PROVIDE(USART3_IRQ = DefaultHandler);
+PROVIDE(USART4_IRQ = DefaultHandler);
+PROVIDE(DMA1_CHANNEL8_IRQ = DefaultHandler);
+PROVIDE(USBFS_IRQ = DefaultHandler);
+PROVIDE(USBFS_WKUP_IRQ = DefaultHandler);
+PROVIDE(PIOC_IRQ = DefaultHandler);
+PROVIDE(OPA_IRQ = DefaultHandler);
+PROVIDE(USBPD_IRQ = DefaultHandler);
+PROVIDE(USBPD_WKUP_IRQ = DefaultHandler);
+PROVIDE(TIM2_CC_IRQ = DefaultHandler);
+PROVIDE(TIM2_TRG_COM_IRQ = DefaultHandler);
+PROVIDE(TIM2_BRK_IRQ = DefaultHandler);
+PROVIDE(TIM3_IRQ = DefaultHandler);

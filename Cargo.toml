@@ -1,0 +1,48 @@
+[workspace]
+resolver = "2"
+members = [
+    "xtask",
+    "ch32x035",
+    "ch32x035-pac",
+    "ch32x035-macro",
+    "ch32x035-rt",
+    "ch32x035-examples",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+
+[workspace.dependencies]
+# Logging
+defmt = "1.1"
+defmt-rtt = "1.2"
+
+# Macros / code generation
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "3.0", features = ["full"] }
+paste = "1.0"
+enumflags2 = "0.7"
+
+# Local crates
+# ch32x035 (HAL) defaults to no features at the workspace level; each
+# consumer (examples) explicitly forwards the features it needs.
+ch32x035 = { path = "ch32x035", default-features = false }
+ch32x035-rt = { path = "ch32x035-rt" }
+ch32x035-pac = { path = "ch32x035-pac" }
+ch32x035-macro = { path = "ch32x035-macro" }
+
+critical-section = { version = "1.2", features = ["restore-state-u32"] }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
+lto = true
+codegen-units = 1
+opt-level = 3
+debug = 2

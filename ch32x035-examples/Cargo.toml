@@ -1,0 +1,30 @@
+[package]
+name = "ch32x035-examples"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Examples for the CH32X035 HAL"
+publish = false
+
+[lib]
+name = "ch32x035_examples"
+path = "src/common/mod.rs"
+
+[[bin]]
+name = "blink"
+path = "src/blink.rs"
+
+[[bin]]
+name = "hello_uart"
+path = "src/hello_uart.rs"
+
+[dependencies]
+ch32x035 = { workspace = true, features = ["defmt", "critical-section-impl", "panic-handler"] }
+ch32x035-pac.workspace = true
+ch32x035-rt.workspace = true
+defmt = { workspace = true }
+defmt-rtt = { workspace = true }
+
+[package.metadata.docs.rs]
+features = ["defmt"]
+targets = ["riscv32imac-unknown-none-elf"]

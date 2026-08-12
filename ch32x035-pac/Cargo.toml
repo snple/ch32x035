@@ -1,0 +1,15 @@
+[package]
+name = "ch32x035-pac"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Peripheral Access Crate for CH32X035 (WCH RISC-V)"
+keywords = ["ch32x035", "wch", "pac", "embedded", "risc-v", "no-std"]
+categories = ["embedded", "hardware-support", "no-std"]
+
+[dependencies]
+ch32x035-rt.workspace = true
+
+[package.metadata.docs.rs]
+features = ["rt"]
+targets = ["riscv32imac-unknown-none-elf"]

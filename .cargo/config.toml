@@ -1,0 +1,26 @@
+# Workspace-wide Cargo configuration for ch32x035.
+#
+# `cargo xtask <command>` works from any directory in the workspace.
+
+[alias]
+xtask = "run --package xtask --"
+
+# Linker flags for the embedded target. These apply to every crate in the
+# workspace when it is built for `riscv32imac-unknown-none-elf`.
+#
+# * `--nmagic` turns off page alignment of sections (saves flash space)
+# * `-Tlink.x` uses ch32x035-rt's linker script (provided via its build script)
+# * `-C target-cpu=generic-rv32` targets a generic RV32 core
+#
+# Each crate's own `.cargo/config.toml` selects `riscv32imac-unknown-none-elf`
+# as the default `[build] target`; from the workspace root pass
+# `--target riscv32imac-unknown-none-elf` explicitly (the host-only `xtask`
+# member must keep building for the host, so the default target is not set
+# globally here).
+
+[target.riscv32imac-unknown-none-elf]
+rustflags = [
+    "-C", "link-arg=--nmagic",
+    "-C", "link-arg=-Tlink.x",
+    "-C", "target-cpu=generic-rv32",
+]
