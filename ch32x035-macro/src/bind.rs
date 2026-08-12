@@ -110,7 +110,7 @@ pub fn bind_impl(args: TokenStream, input: TokenStream) -> TokenStream {
     let expanded = quote! {
         #(#fn_attrs)*
         #[allow(non_snake_case)]
-        #fn_vis #irq_name() {
+        #fn_vis fn #irq_name() {
             #fn_body
         }
 

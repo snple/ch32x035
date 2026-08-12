@@ -68,7 +68,9 @@ pub use rcc::{Clocks, Rcc};
 pub use time::{Duration, Instant};
 pub use timer::{Timer1Pwm, Timer2, Timer2Pwm, Timer3};
 pub use uart::Uart1;
-pub use usbpd::{CcComparator, CcPort, CcPull, SopType, Usbpd};
+pub use usbpd::{
+    CcComparator, CcPort, CcPull, PdSink, PdSource, SinkState, SopType, SourceState, Usbpd,
+};
 
 /// A wrapper that allows access to a peripheral through `&self` only.
 ///

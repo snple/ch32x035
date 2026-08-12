@@ -18,6 +18,22 @@ path = "src/blink.rs"
 name = "hello_uart"
 path = "src/hello_uart.rs"
 
+[[bin]]
+name = "i2c_slave"
+path = "src/i2c_slave.rs"
+
+[[bin]]
+name = "usbpd_sink"
+path = "src/usbpd_sink.rs"
+
+[[bin]]
+name = "usbpd_source"
+path = "src/usbpd_source.rs"
+
+[[bin]]
+name = "usbpd_dual"
+path = "src/usbpd_dual.rs"
+
 [dependencies]
 ch32x035 = { workspace = true, features = ["defmt", "critical-section-impl", "panic-handler"] }
 ch32x035-pac.workspace = true

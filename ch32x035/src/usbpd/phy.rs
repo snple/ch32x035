@@ -1,28 +1,12 @@
-//! USB PD (Power Delivery) PHY driver
+//! USB PD physical-layer (PHY) driver.
 //!
-//! Drives the CH32X035's built-in USB-PD transceiver (BMC, hardware
-//! preamble/SOP handling and DMA). The PD communication pins are **PC14**
-//! (CC1) and **PC15** (CC2); configure them as floating inputs with
-//! [`crate::gpio`] before using this driver.
+//! Drives the CH32X035's built-in USB-PD transceiver: BMC encode/decode,
+//! preamble/SOP/CRC (all in hardware), CC detection and DMA receive/transmit.
+//! The PD communication pins are **PC14** (CC1) and **PC15** (CC2); configure
+//! them as floating inputs with [`crate::gpio`] first.
 //!
-//! This is a **PHY-level** driver: it handles the CC ports, DMA receive and
-//! BMC transmit. The higher-level PD protocol (SOP handling, PDO/RDO
-//! negotiation) is left to the application.
-//!
-//! # Example
-//!
-//! ```ignore
-//! use ch32x035::{Rcc, usbpd::{Usbpd, CcPort, SopType}};
-//!
-//! static mut RX: [u8; 34] = [0; 34];
-//!
-//! let mut usbpd = Usbpd::init(dp.USBPD, &dp.AFIO, &mut rcc);
-//! usbpd.set_cc_comparator(CcPort::Cc1, CcComparator::Cmp0p22);
-//! if usbpd.check_cc(CcPort::Cc1) {
-//!     usbpd.select_cc(CcPort::Cc1);
-//!     unsafe { usbpd.start_receive(&mut RX); }
-//! }
-//! ```
+//! Higher layers live in [`super::protocol`] (message build/parse) and
+//! [`super::policy`] (Source/Sink negotiation).
 
 use crate::pac;
 use crate::rcc::{AhbPeriph, Apb2Periph, Rcc};
@@ -173,6 +157,8 @@ impl SopType {
 /// USB PD transceiver driver.
 pub struct Usbpd {
     usbpd: pac::USBPD,
+    /// Outgoing Message ID, incremented by 2 after each acknowledged send.
+    pub(crate) msg_id: u8,
 }
 
 impl Usbpd {
@@ -192,7 +178,7 @@ impl Usbpd {
         afio.ctlr.set_usbpd_in_hvt();
         afio.ctlr.set_usbpd_phy_v33();
 
-        let mut u = Self { usbpd };
+        let mut u = Self { usbpd, msg_id: 0 };
         u.clear_all_flags();
         // Enable the PD DMA path
         u.usbpd.config.modify_bits(|v| v | CONFIG_PD_DMA_EN);
@@ -218,9 +204,7 @@ impl Usbpd {
 
     /// Set the CC comparator threshold.
     pub fn set_cc_comparator(&mut self, port: CcPort, threshold: CcComparator) {
-        self.cc_modify(port, |v| {
-            (v & !CC_CMP_MASK) | (threshold.bits() << CC_CMP_SHIFT)
-        });
+        self.cc_modify(port, |v| (v & !CC_CMP_MASK) | (threshold.bits() << CC_CMP_SHIFT));
     }
 
     /// Enable the CC comparator.
