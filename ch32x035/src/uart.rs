@@ -92,6 +92,26 @@ fn compute_brr(pclk: u32, baudrate: u32) -> u16 {
     }
 }
 
+/// USART error flags (read from STATR).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Errors {
+    /// Overrun error: a received byte was dropped.
+    pub overrun: bool,
+    /// Noise error.
+    pub noise: bool,
+    /// Framing error.
+    pub framing: bool,
+    /// Parity error.
+    pub parity: bool,
+}
+
+impl Errors {
+    /// Whether no error flag is set.
+    pub const fn is_empty(self) -> bool {
+        !self.overrun && !self.noise && !self.framing && !self.parity
+    }
+}
+
 /// Generate a UART driver type for a PAC USART peripheral.
 macro_rules! impl_uart {
     ($name:ident, $periph:ty, $pclk:expr) => {
@@ -162,6 +182,13 @@ macro_rules! impl_uart {
                 }
             }
 
+            /// Write a byte slice, blocking until every byte is sent.
+            pub fn write(&mut self, data: &[u8]) {
+                for &b in data {
+                    self.write_byte(b);
+                }
+            }
+
             /// Read a byte, blocking until data is available.
             pub fn read_byte(&mut self) -> u8 {
                 while !self.uart.statr.rxne() {}
@@ -175,6 +202,36 @@ macro_rules! impl_uart {
                 } else {
                     None
                 }
+            }
+
+            /// Read into `buf`, blocking until `buf.len()` bytes arrive.
+            ///
+            /// Error flags are not checked here; inspect them with
+            /// [`errors`](Self::errors) / [`clear_errors`](Self::clear_errors)
+            /// if you need error handling.
+            pub fn read(&mut self, buf: &mut [u8]) {
+                for slot in buf {
+                    *slot = self.read_byte();
+                }
+            }
+
+            /// Read the currently-set error flags.
+            pub fn errors(&self) -> Errors {
+                Errors {
+                    overrun: self.uart.statr.ore(),
+                    noise: self.uart.statr.ne(),
+                    framing: self.uart.statr.fe(),
+                    parity: self.uart.statr.pe(),
+                }
+            }
+
+            /// Clear the error flags.
+            ///
+            /// The error flags are cleared by reading STATR followed by
+            /// reading DATAR (WCH/STM32 convention).
+            pub fn clear_errors(&mut self) {
+                let _ = self.uart.statr.read_bits();
+                let _ = self.uart.datar.dr();
             }
 
             /// Wait until the transmission is complete (TXE + TC).
