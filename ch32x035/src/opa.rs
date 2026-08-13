@@ -213,10 +213,26 @@ impl Opa {
     /// See [`ComparatorConfig`] for the pin mapping of each field.
     pub fn configure_comparator1(&mut self, cfg: &ComparatorConfig) {
         let reg = &self.opa.ctlr2;
-        if cfg.mode { reg.set_mode1(); } else { reg.clr_mode1(); }
-        if cfg.psel { reg.set_psel1(); } else { reg.clr_psel1(); }
-        if cfg.nsel { reg.set_nsel1(); } else { reg.clr_nsel1(); }
-        if cfg.hysteresis { reg.set_hyen1(); } else { reg.clr_hyen1(); }
+        if cfg.mode {
+            reg.set_mode1();
+        } else {
+            reg.clr_mode1();
+        }
+        if cfg.psel {
+            reg.set_psel1();
+        } else {
+            reg.clr_psel1();
+        }
+        if cfg.nsel {
+            reg.set_nsel1();
+        } else {
+            reg.clr_nsel1();
+        }
+        if cfg.hysteresis {
+            reg.set_hyen1();
+        } else {
+            reg.clr_hyen1();
+        }
     }
 
     /// Enable comparator 1.
@@ -237,10 +253,26 @@ impl Opa {
     /// Configure comparator 2 (CMP2).
     pub fn configure_comparator2(&mut self, cfg: &ComparatorConfig) {
         let reg = &self.opa.ctlr2;
-        if cfg.mode { reg.set_mode2(); } else { reg.clr_mode2(); }
-        if cfg.psel { reg.set_psel2(); } else { reg.clr_psel2(); }
-        if cfg.nsel { reg.set_nsel2(); } else { reg.clr_nsel2(); }
-        if cfg.hysteresis { reg.set_hyen2(); } else { reg.clr_hyen2(); }
+        if cfg.mode {
+            reg.set_mode2();
+        } else {
+            reg.clr_mode2();
+        }
+        if cfg.psel {
+            reg.set_psel2();
+        } else {
+            reg.clr_psel2();
+        }
+        if cfg.nsel {
+            reg.set_nsel2();
+        } else {
+            reg.clr_nsel2();
+        }
+        if cfg.hysteresis {
+            reg.set_hyen2();
+        } else {
+            reg.clr_hyen2();
+        }
     }
 
     /// Enable comparator 2.
@@ -261,10 +293,26 @@ impl Opa {
     /// Configure comparator 3 (CMP3).
     pub fn configure_comparator3(&mut self, cfg: &ComparatorConfig) {
         let reg = &self.opa.ctlr2;
-        if cfg.mode { reg.set_mode3(); } else { reg.clr_mode3(); }
-        if cfg.psel { reg.set_psel3(); } else { reg.clr_psel3(); }
-        if cfg.nsel { reg.set_nsel3(); } else { reg.clr_nsel3(); }
-        if cfg.hysteresis { reg.set_hyen3(); } else { reg.clr_hyen3(); }
+        if cfg.mode {
+            reg.set_mode3();
+        } else {
+            reg.clr_mode3();
+        }
+        if cfg.psel {
+            reg.set_psel3();
+        } else {
+            reg.clr_psel3();
+        }
+        if cfg.nsel {
+            reg.set_nsel3();
+        } else {
+            reg.clr_nsel3();
+        }
+        if cfg.hysteresis {
+            reg.set_hyen3();
+        } else {
+            reg.clr_hyen3();
+        }
     }
 
     /// Enable comparator 3.
