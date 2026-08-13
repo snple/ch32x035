@@ -296,7 +296,9 @@ impl Afio {
     /// undone without a reset.
     pub fn set_swd_disabled(&mut self, disabled: bool) {
         // 0xx = SWD enabled, 100 = SWD disabled (GPIO), others invalid.
-        self.afio.pcfr1.write_sw_cfg(if disabled { 0b100 } else { 0b000 });
+        self.afio
+            .pcfr1
+            .write_sw_cfg(if disabled { 0b100 } else { 0b000 });
     }
 
     /// Configure the USB-PD PHY (high-threshold input + 3.3 V PHY limit).
