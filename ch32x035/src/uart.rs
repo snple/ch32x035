@@ -234,6 +234,57 @@ macro_rules! impl_uart {
                 let _ = self.uart.datar.dr();
             }
 
+            /// Write a 9-bit word (for [`DataBits::Nine`]).
+            ///
+            /// Only the low 9 bits are transmitted; in 8-bit mode the upper
+            /// bits are ignored.
+            pub fn write_word(&mut self, word: u16) {
+                while !self.uart.statr.txe() {}
+                self.uart.datar.write_dr(word as u32);
+            }
+
+            /// Read a 9-bit word, blocking until data is available.
+            ///
+            /// In 8-bit mode the upper bits are always zero.
+            pub fn read_word(&mut self) -> u16 {
+                while !self.uart.statr.rxne() {}
+                self.uart.datar.dr() as u16
+            }
+
+            /// Non-blocking 9-bit read: returns `Some(word)` if data is
+            /// available.
+            pub fn read_available_word(&mut self) -> Option<u16> {
+                if self.uart.statr.rxne() {
+                    Some(self.uart.datar.dr() as u16)
+                } else {
+                    None
+                }
+            }
+
+            /// Start sending a break condition (TX line forced low).
+            ///
+            /// Keep it asserted for at least one frame duration, then call
+            /// [`clear_break`](Self::clear_break).
+            pub fn set_break(&mut self) {
+                self.uart.ctlr1.set_sbk();
+            }
+
+            /// Stop the break condition started by
+            /// [`set_break`](Self::set_break).
+            pub fn clear_break(&mut self) {
+                self.uart.ctlr1.clr_sbk();
+            }
+
+            /// Whether a break condition was detected on the RX line.
+            pub fn break_detected(&self) -> bool {
+                self.uart.statr.lbd()
+            }
+
+            /// Whether the RX line has been idle for a full frame.
+            pub fn rx_idle(&self) -> bool {
+                self.uart.statr.idle()
+            }
+
             /// Wait until the transmission is complete (TXE + TC).
             pub fn flush(&mut self) {
                 while !self.uart.statr.txe() {}
