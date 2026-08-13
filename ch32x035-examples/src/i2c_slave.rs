@@ -3,8 +3,9 @@
 //! Configures the CH32X035 as an I2C slave at address `0x50` using the
 //! blocking [`I2c1Slave`] driver; clock stretching (the default) pauses the
 //! bus while the slave handles each transaction. The I2C1 pins are **PB6**
-//! (SCL) and **PB7** (SDA), configured as alternate-function open-drain;
-//! connect external pull-ups (e.g. 4.7 kΩ to 3.3 V).
+//! (SCL) and **PB7** (SDA), configured as alternate push-pull; the I2C
+//! peripheral switches them to open-drain automatically; connect external
+//! pull-ups (e.g. 4.7 kΩ to 3.3 V).
 //!
 //! With a second board running as I2C master:
 //! - master writes N bytes → they land in `rx[..N]`;
@@ -38,11 +39,12 @@ fn main() -> ! {
 
     let mut board = Board::init(RCC, GPIOA, GPIOB, GPIOC);
 
-    // I2C1: SCL = PB6, SDA = PB7 (alternate-function open-drain)
+    // I2C1: SCL = PB6, SDA = PB7. The I2C peripheral switches these pins to
+    // open-drain automatically, so configure them as alternate push-pull.
     let mut scl = board.pins.pb::<6>();
     let mut sda = board.pins.pb::<7>();
-    scl.into_alt_open_drain();
-    sda.into_alt_open_drain();
+    scl.into_alt_push_pull();
+    sda.into_alt_push_pull();
 
     let mut slave = I2c1Slave::init(I2C1, &mut board.rcc, board.clocks, 0x50);
 

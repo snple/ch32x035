@@ -57,21 +57,26 @@ impl Pins {
         }
     }
 
-    /// Create a pin token for GPIO port A, pin `N` (0..=15).
+    /// Create a pin token for GPIO port A, pin `N` (0..=23).
     pub fn pa<const N: u32>(&self) -> Pin<0, N> {
-        const { assert!(N <= 15, "GPIOA has pins 0..=15") };
+        const { assert!(N <= 23, "GPIOA has pins 0..=23") };
         Pin::new()
     }
 
-    /// Create a pin token for GPIO port B, pin `N` (0..=15).
+    /// Create a pin token for GPIO port B, pin `N` (0..=21).
     pub fn pb<const N: u32>(&self) -> Pin<1, N> {
-        const { assert!(N <= 15, "GPIOB has pins 0..=15") };
+        const { assert!(N <= 21, "GPIOB has pins 0..=21") };
         Pin::new()
     }
 
-    /// Create a pin token for GPIO port C, pin `N` (0..=15).
+    /// Create a pin token for GPIO port C, pin `N` (0..=7 or 14..=19).
     pub fn pc<const N: u32>(&self) -> Pin<2, N> {
-        const { assert!(N <= 15, "GPIOC has pins 0..=15") };
+        const {
+            assert!(
+                N <= 7 || (N >= 14 && N <= 19),
+                "GPIOC has pins 0..=7 and 14..=19"
+            );
+        };
         Pin::new()
     }
 }
@@ -116,32 +121,41 @@ impl<const PORT: u32, const N: u32> Pin<PORT, N> {
 // `trigger_br{N}`, `idr{N}`, `odr{N}`), so all register access goes through
 // `ch32x035-pac` instead of hand-written offsets and masks (pico-rs style).
 //
-// Pins 0-7 are configured through `CFGLR`, pins 8-15 through `CFGHR`.
-// The `BSHR` set/reset bits are write-only, hence the `trigger_*` accessors.
+// Pins 0-7 are configured through `CFGLR`, pins 8-15 through `CFGHR`, and
+// pins 16-23 through `CFGXR`. Pins 0-15 set/reset through `BSHR`, pins
+// 16-23 through `BSXR`. The set/reset bits are write-only, hence the
+// `trigger_*` accessors.
 
-/// CNF field value: push-pull output
+/// CNF field value (output mode): general-purpose push-pull output
 const CNF_OUTPUT_PUSHPULL: u32 = 0b00;
-/// CNF field value: open-drain output
-const CNF_OUTPUT_OPENDRAIN: u32 = 0b01;
-/// CNF field value: alternate-function open-drain output (e.g. I2C)
-const CNF_ALT_OPENDRAIN: u32 = 0b11;
-/// CNF field value: analog input
+/// CNF field value (output mode): alternate-function push-pull output.
+///
+/// I2C and USB-PD automatically switch the driver to open-drain, so this is
+/// also the correct configuration for I2C pins. The reference manual does
+/// not define separate open-drain CNF values (`01`/`11` are reserved).
+const CNF_ALT_PUSHPULL: u32 = 0b10;
+/// CNF field value (input mode): analog input
 const CNF_INPUT_ANALOG: u32 = 0b00;
-/// CNF field value: floating input
+/// CNF field value (input mode): floating input
 const CNF_INPUT_FLOATING: u32 = 0b01;
-/// CNF field value: pull-up/pull-down input
+/// CNF field value (input mode): pull-up/pull-down input
 const CNF_INPUT_PULL: u32 = 0b10;
-/// MODE field value: input
+/// MODE field value: input mode
 const MODE_INPUT: u32 = 0b00;
-/// MODE field value: output at 50 MHz
-const MODE_OUTPUT_50MHZ: u32 = 0b11;
+/// MODE field value: output mode.
+///
+/// The manual defines `01`/`10`/`11` as output mode (there is no speed
+/// selection on this chip); `01` matches the official SDK.
+const MODE_OUTPUT: u32 = 0b01;
 
 /// Generate the register-access methods for one pin of one port.
 ///
-/// `$cfg` is the config register field name (`cfglr` for pins 0-7, `cfghr`
-/// for pins 8-15); `$base` is the port base from the PAC (`gpioa::BASE`).
+/// `$cfg` is the config register field (`cfglr` for pins 0-7, `cfghr` for
+/// pins 8-15, `cfgxr` for pins 16-23); `$bs` is the set/reset register field
+/// (`bshr` for pins 0-15, `bsxr` for pins 16-23); `$base` is the port base
+/// from the PAC (`gpioa::BASE`).
 macro_rules! impl_pin {
-    ($port:expr, $n:tt, $cfg:ident, $base:expr) => {
+    ($port:expr, $n:tt, $cfg:ident, $bs:ident, $base:expr) => {
         paste::paste! {
             impl Pin<$port, $n> {
                 /// Pointer to this pin's GPIO register block.
@@ -165,32 +179,32 @@ macro_rules! impl_pin {
                 // Output configuration
                 // =========================================================
 
-                /// Configure the pin as a push-pull output at 50 MHz
+                /// Configure the pin as a push-pull output
                 pub fn into_output(&mut self) {
-                    Self::set_config(CNF_OUTPUT_PUSHPULL, MODE_OUTPUT_50MHZ);
+                    Self::set_config(CNF_OUTPUT_PUSHPULL, MODE_OUTPUT);
                 }
 
-                /// Configure the pin as an open-drain output at 50 MHz
-                pub fn into_output_open_drain(&mut self) {
-                    Self::set_config(CNF_OUTPUT_OPENDRAIN, MODE_OUTPUT_50MHZ);
-                }
-
-                /// Configure the pin as an alternate-function open-drain output
-                /// at 50 MHz (used by on-chip peripherals such as I2C)
-                pub fn into_alt_open_drain(&mut self) {
-                    Self::set_config(CNF_ALT_OPENDRAIN, MODE_OUTPUT_50MHZ);
+                /// Configure the pin as an alternate-function push-pull output
+                /// (used by on-chip peripherals).
+                ///
+                /// I2C and USB-PD automatically switch the output driver to
+                /// open-drain, so this single configuration covers all
+                /// on-chip peripherals; the chip has no separate open-drain
+                /// alternate-function mode.
+                pub fn into_alt_push_pull(&mut self) {
+                    Self::set_config(CNF_ALT_PUSHPULL, MODE_OUTPUT);
                 }
 
                 /// Set the pin output high
                 #[inline(always)]
                 pub fn set_high(&mut self) {
-                    Self::regs().bshr.[<trigger_bs $n>]();
+                    Self::regs().$bs.[<trigger_bs $n>]();
                 }
 
                 /// Set the pin output low
                 #[inline(always)]
                 pub fn set_low(&mut self) {
-                    Self::regs().bshr.[<trigger_br $n>]();
+                    Self::regs().$bs.[<trigger_br $n>]();
                 }
 
                 /// Toggle the pin output
@@ -227,7 +241,10 @@ macro_rules! impl_pin {
                     Self::regs().outdr.[<set_odr $n>]();
                 }
 
-                /// Configure the pin as a pull-down input
+                /// Configure the pin as a pull-down input.
+                ///
+                /// Note: only PA0..=PA15 and PC16..=PC17 support a pull-down
+                /// resistor; on every other pin the pull-down is unavailable.
                 pub fn into_input_pulldown(&mut self) {
                     Self::set_config(CNF_INPUT_PULL, MODE_INPUT);
                     Self::regs().outdr.[<clr_odr $n>]();
@@ -254,26 +271,36 @@ macro_rules! impl_pin {
     };
 }
 
-/// Generate pins 0-7 (configured through `CFGLR`).
+/// Generate pins 0-7 (configured through `CFGLR`, set/reset through `BSHR`).
 macro_rules! impl_pins_low {
     ($port:expr, $base:expr, $($n:tt),+) => {
-        $(impl_pin!($port, $n, cfglr, $base);)+
+        $(impl_pin!($port, $n, cfglr, bshr, $base);)+
     };
 }
 
-/// Generate pins 8-15 (configured through `CFGHR`).
+/// Generate pins 8-15 (configured through `CFGHR`, set/reset through `BSHR`).
 macro_rules! impl_pins_high {
     ($port:expr, $base:expr, $($n:tt),+) => {
-        $(impl_pin!($port, $n, cfghr, $base);)+
+        $(impl_pin!($port, $n, cfghr, bshr, $base);)+
     };
 }
 
-// Port A
+/// Generate pins 16-23 (configured through `CFGXR`, set/reset through `BSXR`).
+macro_rules! impl_pins_ext {
+    ($port:expr, $base:expr, $($n:tt),+) => {
+        $(impl_pin!($port, $n, cfgxr, bsxr, $base);)+
+    };
+}
+
+// Port A: PA0..=PA23
 impl_pins_low!(0, pac::gpioa::BASE, 0, 1, 2, 3, 4, 5, 6, 7);
 impl_pins_high!(0, pac::gpioa::BASE, 8, 9, 10, 11, 12, 13, 14, 15);
-// Port B
+impl_pins_ext!(0, pac::gpioa::BASE, 16, 17, 18, 19, 20, 21, 22, 23);
+// Port B: PB0..=PB21
 impl_pins_low!(1, pac::gpiob::BASE, 0, 1, 2, 3, 4, 5, 6, 7);
 impl_pins_high!(1, pac::gpiob::BASE, 8, 9, 10, 11, 12, 13, 14, 15);
-// Port C
+impl_pins_ext!(1, pac::gpiob::BASE, 16, 17, 18, 19, 20, 21);
+// Port C: PC0..=PC7 and PC14..=PC19 (PC8..=PC13 and PC20+ are not bonded out)
 impl_pins_low!(2, pac::gpioc::BASE, 0, 1, 2, 3, 4, 5, 6, 7);
-impl_pins_high!(2, pac::gpioc::BASE, 8, 9, 10, 11, 12, 13, 14, 15);
+impl_pins_high!(2, pac::gpioc::BASE, 14, 15);
+impl_pins_ext!(2, pac::gpioc::BASE, 16, 17, 18, 19);
