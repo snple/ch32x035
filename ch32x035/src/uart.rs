@@ -50,6 +50,19 @@ pub enum StopBits {
     Stop2,
 }
 
+/// Hardware flow control (RS232 RTS/CTS).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlowControl {
+    /// No flow control.
+    None,
+    /// RTS output (receiver-ready signal).
+    Rts,
+    /// CTS input (clear-to-send signal).
+    Cts,
+    /// Both RTS output and CTS input.
+    RtsCts,
+}
+
 /// UART configuration
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
@@ -61,6 +74,18 @@ pub struct Config {
     pub parity: Parity,
     /// Stop bits
     pub stop_bits: StopBits,
+    /// Hardware flow control (RTS/CTS).
+    pub flow_control: FlowControl,
+    /// Single-wire half-duplex mode.
+    pub half_duplex: bool,
+    /// IrDA (infrared) mode.
+    pub irda: bool,
+    /// LIN mode (11-bit break detection).
+    pub lin: bool,
+    /// Enable the RX DMA request.
+    pub dma_rx: bool,
+    /// Enable the TX DMA request.
+    pub dma_tx: bool,
 }
 
 impl Default for Config {
@@ -70,6 +95,12 @@ impl Default for Config {
             data_bits: DataBits::Eight,
             parity: Parity::None,
             stop_bits: StopBits::Stop1,
+            flow_control: FlowControl::None,
+            half_duplex: false,
+            irda: false,
+            lin: false,
+            dma_rx: false,
+            dma_tx: false,
         }
     }
 }
@@ -161,6 +192,59 @@ macro_rules! impl_uart {
                 let brr = compute_brr(pclk, config.baudrate);
                 u.uart.brr.write_bits(brr as u32);
 
+                // Hardware flow control (CTLR3: RTSE / CTSE)
+                match config.flow_control {
+                    FlowControl::None => {
+                        u.uart.ctlr3.clr_rtse();
+                        u.uart.ctlr3.clr_ctse();
+                    }
+                    FlowControl::Rts => {
+                        u.uart.ctlr3.set_rtse();
+                        u.uart.ctlr3.clr_ctse();
+                    }
+                    FlowControl::Cts => {
+                        u.uart.ctlr3.clr_rtse();
+                        u.uart.ctlr3.set_ctse();
+                    }
+                    FlowControl::RtsCts => {
+                        u.uart.ctlr3.set_rtse();
+                        u.uart.ctlr3.set_ctse();
+                    }
+                }
+
+                // Single-wire half-duplex (CTLR3: HDSEL)
+                if config.half_duplex {
+                    u.uart.ctlr3.set_hdsel();
+                } else {
+                    u.uart.ctlr3.clr_hdsel();
+                }
+
+                // IrDA (CTLR3: IREN)
+                if config.irda {
+                    u.uart.ctlr3.set_iren();
+                } else {
+                    u.uart.ctlr3.clr_iren();
+                }
+
+                // LIN mode (CTLR2: LINEN)
+                if config.lin {
+                    u.uart.ctlr2.set_linen();
+                } else {
+                    u.uart.ctlr2.clr_linen();
+                }
+
+                // DMA requests (CTLR3: DMAR / DMAT)
+                if config.dma_rx {
+                    u.uart.ctlr3.set_dmar();
+                } else {
+                    u.uart.ctlr3.clr_dmar();
+                }
+                if config.dma_tx {
+                    u.uart.ctlr3.set_dmat();
+                } else {
+                    u.uart.ctlr3.clr_dmat();
+                }
+
                 // Enable transmitter, receiver and the USART
                 u.uart.ctlr1.set_te();
                 u.uart.ctlr1.set_re();
@@ -243,24 +327,6 @@ macro_rules! impl_uart {
                 self.uart.datar.write_dr(word as u32);
             }
 
-            /// Read a 9-bit word, blocking until data is available.
-            ///
-            /// In 8-bit mode the upper bits are always zero.
-            pub fn read_word(&mut self) -> u16 {
-                while !self.uart.statr.rxne() {}
-                self.uart.datar.dr() as u16
-            }
-
-            /// Non-blocking 9-bit read: returns `Some(word)` if data is
-            /// available.
-            pub fn read_available_word(&mut self) -> Option<u16> {
-                if self.uart.statr.rxne() {
-                    Some(self.uart.datar.dr() as u16)
-                } else {
-                    None
-                }
-            }
-
             /// Start sending a break condition (TX line forced low).
             ///
             /// Keep it asserted for at least one frame duration, then call
@@ -283,6 +349,81 @@ macro_rules! impl_uart {
             /// Whether the RX line has been idle for a full frame.
             pub fn rx_idle(&self) -> bool {
                 self.uart.statr.idle()
+            }
+
+            /// Whether a received byte is ready to be read (RXNE).
+            ///
+            /// Useful from an interrupt handler.
+            pub fn rx_ready(&self) -> bool {
+                self.uart.statr.rxne()
+            }
+
+            /// Whether the TX data register is empty and ready for the next
+            /// byte (TXE). Useful from an interrupt handler.
+            pub fn tx_ready(&self) -> bool {
+                self.uart.statr.txe()
+            }
+
+            /// Enable the receive (RXNE) interrupt.
+            pub fn enable_rx_interrupt(&mut self) {
+                self.uart.ctlr1.set_rxneie();
+            }
+
+            /// Enable the transmit (TXE) interrupt.
+            pub fn enable_tx_interrupt(&mut self) {
+                self.uart.ctlr1.set_txeie();
+            }
+
+            /// Enable the transmission-complete (TC) interrupt.
+            pub fn enable_tx_complete_interrupt(&mut self) {
+                self.uart.ctlr1.set_tcie();
+            }
+
+            /// Enable the idle-line (IDLE) interrupt.
+            pub fn enable_idle_interrupt(&mut self) {
+                self.uart.ctlr1.set_idleie();
+            }
+
+            /// Enable the parity-error (PE) interrupt.
+            pub fn enable_parity_error_interrupt(&mut self) {
+                self.uart.ctlr1.set_peie();
+            }
+
+            /// Disable all USART interrupt sources.
+            pub fn disable_interrupts(&mut self) {
+                self.uart.ctlr1.clr_rxneie();
+                self.uart.ctlr1.clr_txeie();
+                self.uart.ctlr1.clr_tcie();
+                self.uart.ctlr1.clr_idleie();
+                self.uart.ctlr1.clr_peie();
+            }
+
+            /// Enable or disable the RX DMA request (CTLR3 DMAR).
+            pub fn set_dma_rx(&mut self, enabled: bool) {
+                if enabled {
+                    self.uart.ctlr3.set_dmar();
+                } else {
+                    self.uart.ctlr3.clr_dmar();
+                }
+            }
+
+            /// Enable or disable the TX DMA request (CTLR3 DMAT).
+            pub fn set_dma_tx(&mut self, enabled: bool) {
+                if enabled {
+                    self.uart.ctlr3.set_dmat();
+                } else {
+                    self.uart.ctlr3.clr_dmat();
+                }
+            }
+
+            /// Set the IrDA prescaler (GPR PSC field).
+            pub fn set_prescaler(&mut self, psc: u8) {
+                self.uart.gpr.write_psc(psc as u32);
+            }
+
+            /// Set the IrDA guard time (GPR GT field).
+            pub fn set_guard_time(&mut self, gt: u8) {
+                self.uart.gpr.write_gt(gt as u32);
             }
 
             /// Wait until the transmission is complete (TXE + TC).
