@@ -25,7 +25,7 @@ fn defmt_timestamp() -> u64 {
 }
 
 use ch32x035::gpio::Pins;
-use ch32x035::usbpd::{PdoType, Usbpd};
+use ch32x035::usbpd::{PdoType, Port, Request, Usbpd};
 use ch32x035::{Clocks, CorePeripherals, Delay, DelayUs, PdSink, Rcc, SinkState, main, pac};
 
 /// PD DMA receive buffer (4-byte aligned via `#[repr(align(4))]`).
@@ -60,20 +60,21 @@ fn main() -> ! {
     cc2.into_input();
 
     let usbpd = Usbpd::init(USBPD, &AFIO, &mut rcc);
-    let mut delay = Delay::init(cp.SYST, clocks.sysclk_hz());
+    let delay = Delay::init(cp.SYST, clocks.sysclk_hz());
 
     // SAFETY: RX/TX are `static` and stay alive (and unaliased) for the whole
     // program; both are 4-byte aligned via the `Align4` wrapper.
-    let mut sink = unsafe {
+    let port = unsafe {
         let rx: &'static mut [u8] = &mut (*core::ptr::addr_of_mut!(RX)).0;
         let tx: &'static mut [u8] = &mut (*core::ptr::addr_of_mut!(TX)).0;
-        PdSink::new(usbpd, rx, tx)
+        Port::new(usbpd, rx, tx)
     };
+    let mut sink = PdSink::new(port);
 
     let mut pps_tried = false;
 
     loop {
-        sink.poll(&mut delay);
+        sink.poll(&delay);
 
         match sink.state() {
             SinkState::NeedRequest => {
@@ -90,14 +91,20 @@ fn main() -> ! {
                         );
                     }
                 }
-                sink.request_voltage(5000, None, &mut delay);
+                sink.request(
+                    Request::FixedVoltage {
+                        voltage_mv: 5000,
+                        current_ma: None,
+                    },
+                    &delay,
+                );
             }
             SinkState::Ready => {
                 defmt::info!(
                     "PD Ready: {} mV / {} mA (port CC{})",
                     sink.requested_mv(),
                     sink.requested_ma(),
-                    sink.port() as u8 + 1
+                    sink.cc_port() as u8 + 1
                 );
 
                 // After a short delay, try a PPS renegotiation if an APDO
@@ -111,7 +118,13 @@ fn main() -> ! {
                     });
                     if has_apdo {
                         defmt::info!("Requesting PPS 9V / 1.5A");
-                        sink.request_pps(9000, 1500, &mut delay);
+                        sink.request(
+                            Request::Pps {
+                                voltage_mv: 9000,
+                                current_ma: 1500,
+                            },
+                            &delay,
+                        );
                     }
                     pps_tried = true;
                 }

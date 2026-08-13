@@ -157,8 +157,6 @@ impl SopType {
 /// USB PD transceiver driver.
 pub struct Usbpd {
     usbpd: pac::USBPD,
-    /// Outgoing Message ID, incremented by 2 after each acknowledged send.
-    pub(crate) msg_id: u8,
 }
 
 impl Usbpd {
@@ -178,7 +176,7 @@ impl Usbpd {
         afio.ctlr.set_usbpd_in_hvt();
         afio.ctlr.set_usbpd_phy_v33();
 
-        let mut u = Self { usbpd, msg_id: 0 };
+        let mut u = Self { usbpd };
         u.clear_all_flags();
         // Enable the PD DMA path
         u.usbpd.config.modify_bits(|v| v | CONFIG_PD_DMA_EN);
@@ -204,7 +202,9 @@ impl Usbpd {
 
     /// Set the CC comparator threshold.
     pub fn set_cc_comparator(&mut self, port: CcPort, threshold: CcComparator) {
-        self.cc_modify(port, |v| (v & !CC_CMP_MASK) | (threshold.bits() << CC_CMP_SHIFT));
+        self.cc_modify(port, |v| {
+            (v & !CC_CMP_MASK) | (threshold.bits() << CC_CMP_SHIFT)
+        });
     }
 
     /// Enable the CC comparator.
@@ -251,9 +251,9 @@ impl Usbpd {
     /// # Safety
     ///
     /// The DMA engine writes directly to `buf` asynchronously; the caller
-    /// must ensure `buf` remains valid and is not accessed while a receive
-    /// is in progress.
-    pub unsafe fn start_receive(&mut self, buf: &'static mut [u8]) {
+    /// must ensure `buf` remains valid and unaliased until the receive
+    /// completes.
+    pub unsafe fn start_receive(&mut self, buf: &mut [u8]) {
         debug_assert!(
             (buf.as_ptr() as usize).is_multiple_of(4),
             "PD DMA buffer must be 4-byte aligned"

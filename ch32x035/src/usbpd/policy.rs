@@ -1,163 +1,83 @@
-//! USB PD policy engines: blocking Source and Sink state machines.
+//! USB PD policy engines: blocking Sink and Source state machines.
 //!
-//! Built on top of the PHY ([`super::phy`]) and protocol ([`super::protocol`])
-//! layers, this module drives a full PD power negotiation:
+//! Built on the [`super::port`] link layer and the [`super::protocol`] types,
+//! this module drives a complete PD power negotiation:
 //!
-//! - [`PdSink`] (receiving power): detect the CC connection, wait for
-//!   `Source_Capabilities`, send a `Request` (fixed or PPS), then wait for
-//!   `Accept` and `PS_RDY`.
-//! - [`PdSource`] (supplying power): detect the CC connection, send
-//!   `Source_Capabilities`, wait for a `Request`, then send `Accept` and
-//!   `PS_RDY`. After the negotiation it keeps responding (re-request,
-//!   `Get_Source_Cap`, `Soft_Reset`) so power delivery can be maintained.
+//! - [`PdSink`] (receiving power): detects the CC connection, waits for
+//!   `Source_Capabilities`, sends a `Request` (fixed, PPS or AVS), then waits
+//!   for `Accept` and `PS_RDY`.
+//! - [`PdSource`] (supplying power): detects the CC connection, advertises
+//!   `Source_Capabilities`, waits for a `Request`, then sends `Accept` and
+//!   `PS_RDY`. Once [`Ready`](SourceState::Ready) it keeps answering
+//!   re-requests, `Get_Source_Cap` and `Soft_Reset` so power can be
+//!   maintained.
 //!
 //! Both engines are **blocking**: [`poll`](PdSink::poll) advances the state
 //! machine and busy-waits (with the supplied [`DelayUs`]) while waiting for
-//! messages or timeouts. The CC detection is simplified (a single 0.22 V
+//! messages or timeouts. CC detection is simplified (a single 0.22 V
 //! comparator via [`Usbpd::check_cc`]); production code may want the
 //! multi-threshold detection used by the WCH SDK.
 //!
 //! # Example (sink)
 //!
 //! ```ignore
-//! use ch32x035::{Rcc, delay::DelayUs, usbpd::policy::{PdSink, SinkState}};
+//! use ch32x035::usbpd::{policy::{PdSink, SinkState}, Request};
 //!
-//! static mut RX: [u8; 34] = [0; 34];
-//! static mut TX: [u8; 34] = [0; 34];
-//!
-//! let mut sink = unsafe { PdSink::new(usbpd, &mut RX, &mut TX) };
-//! let mut delay = /* a DelayUs implementor */;
+//! let mut sink = PdSink::new(port);
 //! loop {
-//!     sink.poll(&mut delay);
+//!     sink.poll(&delay);
 //!     match sink.state() {
-//!         // Source_Capabilities received: request 5 V at max current,
-//!         // or a PPS output:
 //!         SinkState::NeedRequest => {
-//!             sink.request_voltage(5000, None, &mut delay);
-//!             // sink.request_pps(9000, 1500, &mut delay); // 9 V PPS
+//!             // Request the fixed PDO closest to 5 V at its maximum current.
+//!             sink.request(Request::FixedVoltage { voltage_mv: 5000, current_ma: None }, &delay);
 //!         }
 //!         SinkState::Ready => break, // power available
-//!         SinkState::Error => panic!("PD negotiation failed"),
+//!         SinkState::Error => break,
 //!         _ => {}
 //!     }
 //! }
 //! ```
 
 use crate::delay::DelayUs;
-use crate::usbpd::phy::{CcPort, CcPull, SopType, Usbpd};
+use crate::usbpd::phy::{CcPort, CcPull, SopType};
+use crate::usbpd::port::Port;
 use crate::usbpd::protocol::{
-    ApdoType, ControlMessage, DataMessage, DataRole, Header, Pdo, PdoType, PowerRole, RxMessage,
-    SpecRev, build_message, make_avs_rdo, make_fixed_pdo, make_pps_rdo, make_request_rdo,
-    parse_message,
+    ApdoType, ControlMessage, DataMessage, DataRole, Message, Pdo, PdoType, PowerRole, Rdo,
+    SpecRev,
 };
 
-/// Borrow the RX DMA buffer as read-only.
-///
-/// Module-internal: the engine's buffers are `'static` by construction of
-/// [`PdSink`]/[`PdSource`] and never aliased concurrently (single-threaded,
-/// blocking policy).
-fn rx_slice(ptr: *mut u8, len: usize) -> &'static [u8] {
-    // SAFETY: see the function docs above.
-    unsafe { core::slice::from_raw_parts(ptr as *const u8, len) }
-}
-
-/// Borrow the TX DMA buffer as mutable.
-///
-/// Module-internal: the caller (`start_receive`) hands the buffer to the DMA
-/// and drops the reference immediately, so no aliasing occurs.
-fn rx_slice_mut(ptr: *mut u8, len: usize) -> &'static mut [u8] {
-    // SAFETY: see the function docs above.
-    unsafe { core::slice::from_raw_parts_mut(ptr, len) }
-}
-
-/// Put the USBPD receive path back into receive mode (DMA target = `rx`).
-fn start_receive(usbpd: &mut Usbpd, rx_ptr: *mut u8, rx_len: usize) {
-    let buf = rx_slice_mut(rx_ptr, rx_len);
-    // SAFETY: the buffer is 'static (see `rx_slice_mut`); the DMA only
-    // writes it while receive mode is active, which the caller sequences.
-    unsafe { usbpd.start_receive(buf) };
-}
-
-/// Blocking wait (up to `timeout_ms`) for a message, returning it parsed.
-///
-/// Re-enters receive mode before returning so the next frame can arrive.
-fn wait_message(
-    usbpd: &mut Usbpd,
-    rx_ptr: *mut u8,
-    rx_len: usize,
-    delay: &mut impl DelayUs,
-    timeout_ms: u32,
-) -> Option<RxMessage<'static>> {
-    for _ in 0..timeout_ms {
-        if usbpd.is_rx_complete() {
-            let len = usbpd.received_len() as usize;
-            usbpd.clear_all_flags();
-            let rx = rx_slice(rx_ptr, rx_len);
-            let msg = parse_message(&rx[..len.min(rx_len)]);
-            start_receive(usbpd, rx_ptr, rx_len);
-            return msg;
-        }
-        delay.delay_ms(1);
-    }
-    start_receive(usbpd, rx_ptr, rx_len);
-    None
-}
-
-/// Send a control message (no data objects), waiting for its GoodCRC.
-#[allow(clippy::too_many_arguments)]
-fn send_control(
-    usbpd: &mut Usbpd,
-    tx_ptr: *mut u8,
-    tx_len: usize,
-    rx_ptr: *mut u8,
-    rx_len: usize,
-    msg: ControlMessage,
-    role: (PowerRole, DataRole),
-    spec: SpecRev,
-    delay: &mut impl DelayUs,
-) -> bool {
-    send_data(
-        usbpd,
-        tx_ptr,
-        tx_len,
-        rx_ptr,
-        rx_len,
-        msg as u8,
-        &[],
-        role,
-        spec,
-        delay,
-    )
-}
-
-/// Send a data message, waiting for its GoodCRC.
-#[allow(clippy::too_many_arguments)]
-fn send_data(
-    usbpd: &mut Usbpd,
-    tx_ptr: *mut u8,
-    tx_len: usize,
-    rx_ptr: *mut u8,
-    rx_len: usize,
-    msg_type: u8,
-    data: &[u32],
-    role: (PowerRole, DataRole),
-    spec: SpecRev,
-    delay: &mut impl DelayUs,
-) -> bool {
-    let header = Header::new()
-        .with_message_type(msg_type)
-        .with_port_power_role(role.0)
-        .with_port_data_role(role.1)
-        .with_spec_revision(spec);
-    let tx = rx_slice_mut(tx_ptr, tx_len);
-    let len = match build_message(tx, header, data) {
-        Ok(l) => l,
-        Err(_) => return false,
-    };
-    let rx = rx_slice(rx_ptr, rx_len);
-    usbpd
-        .send_message(tx, len, SopType::Sop0, rx, delay)
-        .is_ok()
+/// A sink-side power request, applied with [`PdSink::request`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Request {
+    /// Request a fixed PDO by 1-based position; the current is clamped to the
+    /// PDO's maximum.
+    Fixed {
+        /// 1-based PDO position.
+        position: u8,
+        /// Requested current (mA), clamped to the PDO maximum.
+        current_ma: u16,
+    },
+    /// Request the fixed PDO whose voltage is closest to `voltage_mv`.
+    FixedVoltage {
+        /// Target voltage (mV).
+        voltage_mv: u16,
+        /// Requested current (mA); `None` requests the PDO maximum.
+        current_ma: Option<u16>,
+    },
+    /// Request a PPS (programmable power supply) output.
+    Pps {
+        /// Output voltage (mV).
+        voltage_mv: u16,
+        /// Operating current (mA), clamped to the APDO maximum.
+        current_ma: u16,
+    },
+    /// Request an AVS (adjustable voltage supply) output.
+    Avs {
+        /// Output voltage (mV).
+        voltage_mv: u16,
+        /// Operating current (mA).
+        current_ma: u16,
+    },
 }
 
 // ============================================================================
@@ -171,8 +91,8 @@ pub enum SinkState {
     Idle,
     /// Connected; waiting for `Source_Capabilities`.
     AwaitSrcCap,
-    /// `Source_Capabilities` received; waiting for the application to
-    /// request a PDO (via [`PdSink::request_voltage`] or [`PdSink::request`]).
+    /// `Source_Capabilities` received; waiting for the application to send a
+    /// [`Request`] via [`PdSink::request`].
     NeedRequest,
     /// `Request` sent; waiting for `Accept`.
     AwaitAccept,
@@ -190,46 +110,23 @@ pub enum SinkState {
 /// then call [`poll`](Self::poll) in a loop until [`state`](Self::state) is
 /// [`Ready`](SinkState::Ready) or [`Error`](SinkState::Error).
 pub struct PdSink {
-    usbpd: Usbpd,
+    link: Port,
     state: SinkState,
-    rx_ptr: *mut u8,
-    rx_len: usize,
-    tx_ptr: *mut u8,
-    tx_len: usize,
-    port: CcPort,
-    pdo: [u32; 7],
+    cc_port: CcPort,
+    pdo: [Pdo; 7],
     pdo_count: u8,
     requested_mv: u16,
     requested_ma: u16,
 }
 
 impl PdSink {
-    /// Create a sink engine, consuming the [`Usbpd`] driver.
-    ///
-    /// `rx`/`tx` are the PD DMA buffers (must be 4-byte aligned).
-    ///
-    /// # Safety
-    ///
-    /// Both buffers must stay alive and unmoved for the whole negotiation,
-    /// and must not be accessed concurrently with the engine.
-    pub unsafe fn new(usbpd: Usbpd, rx: &'static mut [u8], tx: &'static mut [u8]) -> Self {
-        debug_assert!(
-            (rx.as_ptr() as usize).is_multiple_of(4),
-            "PD RX buffer must be 4-byte aligned"
-        );
-        debug_assert!(
-            (tx.as_ptr() as usize).is_multiple_of(4),
-            "PD TX buffer must be 4-byte aligned"
-        );
+    /// Create a sink engine over the given [`Port`].
+    pub fn new(link: Port) -> Self {
         Self {
-            usbpd,
+            link,
             state: SinkState::Idle,
-            rx_ptr: rx.as_mut_ptr(),
-            rx_len: rx.len(),
-            tx_ptr: tx.as_mut_ptr(),
-            tx_len: tx.len(),
-            port: CcPort::Cc1,
-            pdo: [0; 7],
+            cc_port: CcPort::Cc1,
+            pdo: [Pdo::from_bits(0); 7],
             pdo_count: 0,
             requested_mv: 0,
             requested_ma: 0,
@@ -242,11 +139,11 @@ impl PdSink {
     }
 
     /// The CC port that is connected.
-    pub fn port(&self) -> CcPort {
-        self.port
+    pub fn cc_port(&self) -> CcPort {
+        self.cc_port
     }
 
-    /// The voltage (mV) of the PDO that was requested.
+    /// The voltage (mV) that was requested.
     pub fn requested_mv(&self) -> u16 {
         self.requested_mv
     }
@@ -267,7 +164,7 @@ impl PdSink {
     /// The `i`-th advertised PDO (0-based), if any.
     pub fn pdo(&self, i: usize) -> Option<Pdo> {
         if i < self.pdo_count as usize {
-            Some(Pdo::from_bits(self.pdo[i]))
+            Some(self.pdo[i])
         } else {
             None
         }
@@ -276,257 +173,37 @@ impl PdSink {
     /// Advance the negotiation (blocking).
     ///
     /// `delay` is used for all timeouts and debounce waits.
-    pub fn poll(&mut self, delay: &mut impl DelayUs) {
+    pub fn poll(&mut self, delay: &impl DelayUs) {
         match self.state {
-            SinkState::Idle => {
-                for port in [CcPort::Cc1, CcPort::Cc2] {
-                    if self.usbpd.check_cc(port) {
-                        self.port = port;
-                        self.usbpd.select_cc(port);
-                        start_receive(&mut self.usbpd, self.rx_ptr, self.rx_len);
-                        self.state = SinkState::AwaitSrcCap;
-                        return;
-                    }
-                }
-            }
-            SinkState::AwaitSrcCap => {
-                let mut elapsed = 0u32;
-                loop {
-                    if let Some(msg) =
-                        wait_message(&mut self.usbpd, self.rx_ptr, self.rx_len, delay, 100)
-                    {
-                        match msg.header().message_type() {
-                            t if t == DataMessage::SourceCapabilities as u8 => {
-                                let n = msg.header().num_data_objects() as usize;
-                                self.pdo_count = n.min(7) as u8;
-                                for i in 0..n.min(7) {
-                                    self.pdo[i] = msg.data_object(i);
-                                }
-                                self.state = SinkState::NeedRequest;
-                                return;
-                            }
-                            t if t == ControlMessage::SoftReset as u8 => {
-                                send_control(
-                                    &mut self.usbpd,
-                                    self.tx_ptr,
-                                    self.tx_len,
-                                    self.rx_ptr,
-                                    self.rx_len,
-                                    ControlMessage::Accept,
-                                    (PowerRole::Sink, DataRole::Ufp),
-                                    SpecRev::Rev3_0,
-                                    delay,
-                                );
-                            }
-                            t if t == ControlMessage::GetSinkCap as u8 => {
-                                let cap = make_fixed_pdo(5000, 1000);
-                                send_data(
-                                    &mut self.usbpd,
-                                    self.tx_ptr,
-                                    self.tx_len,
-                                    self.rx_ptr,
-                                    self.rx_len,
-                                    DataMessage::SinkCapabilities as u8,
-                                    &[cap],
-                                    (PowerRole::Sink, DataRole::Ufp),
-                                    SpecRev::Rev3_0,
-                                    delay,
-                                );
-                            }
-                            _ => {}
-                        }
-                    } else {
-                        elapsed += 100;
-                        if elapsed >= 5000 {
-                            self.state = SinkState::Error;
-                            return;
-                        }
-                    }
-                }
-            }
-            SinkState::AwaitAccept => {
-                let mut elapsed = 0u32;
-                loop {
-                    if let Some(msg) =
-                        wait_message(&mut self.usbpd, self.rx_ptr, self.rx_len, delay, 100)
-                    {
-                        match msg.header().message_type() {
-                            t if t == ControlMessage::Accept as u8 => {
-                                self.state = SinkState::AwaitPsRdy;
-                                return;
-                            }
-                            t if t == ControlMessage::Reject as u8
-                                || t == ControlMessage::Wait as u8 =>
-                            {
-                                self.state = SinkState::Error;
-                                return;
-                            }
-                            _ => {}
-                        }
-                    } else {
-                        elapsed += 100;
-                        if elapsed >= 500 {
-                            self.state = SinkState::Error;
-                            return;
-                        }
-                    }
-                }
-            }
-            SinkState::AwaitPsRdy => {
-                let mut elapsed = 0u32;
-                loop {
-                    if let Some(msg) =
-                        wait_message(&mut self.usbpd, self.rx_ptr, self.rx_len, delay, 100)
-                    {
-                        match msg.header().message_type() {
-                            t if t == ControlMessage::PsRdy as u8 => {
-                                self.state = SinkState::Ready;
-                                return;
-                            }
-                            _ => {}
-                        }
-                    } else {
-                        elapsed += 100;
-                        if elapsed >= 500 {
-                            self.state = SinkState::Error;
-                            return;
-                        }
-                    }
-                }
-            }
-            SinkState::NeedRequest => {
-                // Wait for the application to call `request_voltage`/`request`.
-            }
+            SinkState::Idle => self.detect(),
+            SinkState::AwaitSrcCap => self.await_src_cap(delay),
+            SinkState::AwaitAccept => self.await_accept(delay),
+            SinkState::AwaitPsRdy => self.await_ps_rdy(delay),
+            SinkState::NeedRequest => {} // application sends a `Request`
             SinkState::Ready | SinkState::Error => {}
         }
     }
 
-    /// Request the advertised fixed-supply PDO whose voltage is closest to
-    /// `voltage_mv`.
+    /// Send a power request, transitioning to
+    /// [`AwaitAccept`](SinkState::AwaitAccept).
     ///
-    /// `current_ma` overrides the requested current; `None` requests the
-    /// PDO's maximum. Works from
-    /// [`NeedRequest`](SinkState::NeedRequest) (initial request) or
-    /// [`Ready`](SinkState::Ready) (renegotiation). Returns `true` if a
+    /// Works from [`NeedRequest`](SinkState::NeedRequest) (initial request) or
+    /// [`Ready`](SinkState::Ready) (renegotiation). Returns `true` if the
     /// `Request` was sent.
-    pub fn request_voltage(
-        &mut self,
-        voltage_mv: u16,
-        current_ma: Option<u16>,
-        delay: &mut impl DelayUs,
-    ) -> bool {
-        let mut best: Option<(u8, Pdo)> = None;
-        let mut best_delta = u16::MAX;
-        for i in 0..self.pdo_count as usize {
-            let p = Pdo::from_bits(self.pdo[i]);
-            if p.pdo_type() != PdoType::FixedSupply {
-                continue;
-            }
-            let delta = p.voltage_mv().abs_diff(voltage_mv);
-            if delta < best_delta {
-                best_delta = delta;
-                best = Some((i as u8 + 1, p));
-            }
-        }
-        match best {
-            Some((position, pdo)) => {
-                let ma = current_ma
-                    .unwrap_or(pdo.max_current_ma())
-                    .min(pdo.max_current_ma());
-                self.send_request(position, ma, delay)
-            }
-            None => {
-                self.state = SinkState::Error;
-                false
-            }
-        }
-    }
-
-    /// Request the 1-based PDO `position` with the given current.
-    ///
-    /// The current is clamped to the PDO's maximum. Works from
-    /// [`NeedRequest`](SinkState::NeedRequest) or
-    /// [`Ready`](SinkState::Ready). Returns `true` if a `Request` was sent.
-    pub fn request(&mut self, position: u8, current_ma: u16, delay: &mut impl DelayUs) -> bool {
-        if position == 0 || position > self.pdo_count {
+    pub fn request(&mut self, req: Request, delay: &impl DelayUs) -> bool {
+        let Some((_, rdo, mv, ma)) = self.build_request(req) else {
             self.state = SinkState::Error;
             return false;
-        }
-        let pdo = Pdo::from_bits(self.pdo[(position - 1) as usize]);
-        let ma = current_ma.min(pdo.max_current_ma());
-        self.send_request(position, ma, delay)
-    }
-
-    /// Request a PPS (PD 3.0 programmable power) output voltage from the
-    /// APDO whose voltage range contains `voltage_mv`.
-    ///
-    /// The current is clamped to the APDO's maximum. Works from
-    /// [`NeedRequest`](SinkState::NeedRequest) or
-    /// [`Ready`](SinkState::Ready). Returns `true` if a `Request` was sent.
-    pub fn request_pps(
-        &mut self,
-        voltage_mv: u16,
-        current_ma: u16,
-        delay: &mut impl DelayUs,
-    ) -> bool {
-        for i in 0..self.pdo_count as usize {
-            let p = Pdo::from_bits(self.pdo[i]);
-            if p.pdo_type() != PdoType::Apdo {
-                continue;
-            }
-            if voltage_mv >= p.min_voltage_mv() && voltage_mv <= p.max_voltage_mv() {
-                let ma = current_ma.min(p.max_current_ma());
-                let rdo = make_pps_rdo(i as u8 + 1, voltage_mv, ma);
-                return self.send_rdo(voltage_mv, ma, rdo, delay);
-            }
-        }
-        self.state = SinkState::Error;
-        false
-    }
-
-    /// Request an AVS (adjustable voltage supply) output from the matching
-    /// SPR/EPR AVS APDO.
-    ///
-    /// For an SPR AVS APDO the current is clamped to the relevant band's
-    /// maximum (15–20 V band if `voltage_mv >= 15 V`, else 9–15 V band); for
-    /// an EPR AVS APDO the requested current is used directly (the APDO only
-    /// caps power). Works from [`NeedRequest`](SinkState::NeedRequest) or
-    /// [`Ready`](SinkState::Ready). Returns `true` if a `Request` was sent.
-    pub fn request_avs(
-        &mut self,
-        voltage_mv: u16,
-        current_ma: u16,
-        delay: &mut impl DelayUs,
-    ) -> bool {
-        for i in 0..self.pdo_count as usize {
-            let p = Pdo::from_bits(self.pdo[i]);
-            if p.pdo_type() != PdoType::Apdo {
-                continue;
-            }
-            let (min_v, max_v, max_ma) = match p.apdo_type() {
-                ApdoType::SprAvs => {
-                    let band = if voltage_mv >= 15000 {
-                        p.spr_avs_current_15_20v_ma()
-                    } else {
-                        p.spr_avs_current_9_15v_ma()
-                    };
-                    (9000, 20000, band)
-                }
-                ApdoType::EprAvs => (p.epr_min_voltage_mv(), p.epr_max_voltage_mv(), 0),
-                _ => continue,
-            };
-            if voltage_mv >= min_v && voltage_mv <= max_v {
-                let ma = if max_ma == 0 {
-                    current_ma
-                } else {
-                    current_ma.min(max_ma)
-                };
-                let rdo = make_avs_rdo(i as u8 + 1, voltage_mv, ma);
-                return self.send_rdo(voltage_mv, ma, rdo, delay);
-            }
-        }
-        self.state = SinkState::Error;
-        false
+        };
+        self.requested_mv = mv;
+        self.requested_ma = ma;
+        let ok = self.send_data(DataMessage::Request, &[rdo.bits()], delay);
+        self.state = if ok {
+            SinkState::AwaitAccept
+        } else {
+            SinkState::Error
+        };
+        ok
     }
 
     /// Reset the engine to [`Idle`](SinkState::Idle) so the negotiation can
@@ -536,52 +213,208 @@ impl PdSink {
         self.pdo_count = 0;
         self.requested_mv = 0;
         self.requested_ma = 0;
+        self.link.reset_msg_id();
     }
 
-    /// Build and send a Request RDO, transitioning to
-    /// [`AwaitAccept`](SinkState::AwaitAccept).
-    fn send_request(&mut self, position: u8, current_ma: u16, delay: &mut impl DelayUs) -> bool {
-        let pdo = Pdo::from_bits(self.pdo[(position - 1) as usize]);
-        let rdo = make_request_rdo(position, current_ma, current_ma);
-        self.send_rdo(pdo.voltage_mv(), current_ma, rdo, delay)
+    /// Consume the engine and return the underlying [`Port`], so the link can
+    /// be reused for another role.
+    pub fn into_port(self) -> Port {
+        self.link
     }
 
-    /// Send a pre-built RDO as a Request, recording the requested voltage
-    /// and current and transitioning to
-    /// [`AwaitAccept`](SinkState::AwaitAccept).
-    fn send_rdo(
+    /// Detect the CC connection and select the active port.
+    fn detect(&mut self) {
+        for p in [CcPort::Cc1, CcPort::Cc2] {
+            if self.link.phy().check_cc(p) {
+                self.cc_port = p;
+                self.link.phy().select_cc(p);
+                self.link.start();
+                self.state = SinkState::AwaitSrcCap;
+                return;
+            }
+        }
+    }
+
+    /// Wait for `Source_Capabilities`, answering `Soft_Reset` / `Get_Sink_Cap`.
+    fn await_src_cap(&mut self, delay: &impl DelayUs) {
+        let mut elapsed = 0u32;
+        while elapsed < 5000 {
+            match self.link.receive(100, delay) {
+                Some(msg) => match msg.header().message_type() {
+                    t if t == DataMessage::SourceCapabilities as u8 => {
+                        let n = (msg.num_data_objects() as usize).min(7);
+                        self.pdo_count = n as u8;
+                        for (i, slot) in self.pdo.iter_mut().take(n).enumerate() {
+                            *slot = Pdo::from_bits(msg.object(i));
+                        }
+                        self.state = SinkState::NeedRequest;
+                        return;
+                    }
+                    t if t == ControlMessage::SoftReset as u8 => {
+                        self.send_control(ControlMessage::Accept, delay);
+                    }
+                    t if t == ControlMessage::GetSinkCap as u8 => {
+                        self.send_sink_caps(delay);
+                    }
+                    _ => {}
+                },
+                None => elapsed += 100,
+            }
+        }
+        self.state = SinkState::Error;
+    }
+
+    /// Wait for `Accept`, failing on `Reject` / `Wait`.
+    fn await_accept(&mut self, delay: &impl DelayUs) {
+        self.await_control(delay, 500, |t| match t {
+            t if t == ControlMessage::Accept as u8 => Some(SinkState::AwaitPsRdy),
+            t if t == ControlMessage::Reject as u8 || t == ControlMessage::Wait as u8 => {
+                Some(SinkState::Error)
+            }
+            _ => None,
+        });
+    }
+
+    /// Wait for `PS_RDY`.
+    fn await_ps_rdy(&mut self, delay: &impl DelayUs) {
+        self.await_control(delay, 500, |t| match t {
+            t if t == ControlMessage::PsRdy as u8 => Some(SinkState::Ready),
+            _ => None,
+        });
+    }
+
+    /// Shared wait loop for control-message-driven state transitions.
+    fn await_control(
         &mut self,
-        requested_mv: u16,
-        requested_ma: u16,
-        rdo: u32,
-        delay: &mut impl DelayUs,
-    ) -> bool {
-        self.requested_mv = requested_mv;
-        self.requested_ma = requested_ma;
-        let ok = send_data(
-            &mut self.usbpd,
-            self.tx_ptr,
-            self.tx_len,
-            self.rx_ptr,
-            self.rx_len,
-            DataMessage::Request as u8,
-            &[rdo],
-            (PowerRole::Sink, DataRole::Ufp),
-            SpecRev::Rev3_0,
-            delay,
-        );
-        self.state = if ok {
-            SinkState::AwaitAccept
-        } else {
-            SinkState::Error
-        };
-        ok
+        delay: &impl DelayUs,
+        timeout_ms: u32,
+        f: impl Fn(u8) -> Option<SinkState>,
+    ) {
+        let mut elapsed = 0u32;
+        while elapsed < timeout_ms {
+            match self.link.receive(100, delay) {
+                Some(msg) => {
+                    if let Some(next) = f(msg.header().message_type()) {
+                        self.state = next;
+                        return;
+                    }
+                }
+                None => elapsed += 100,
+            }
+        }
+        self.state = SinkState::Error;
     }
 
-    /// Consume the engine and return the underlying [`Usbpd`] driver, so the
-    /// transceiver can be reconfigured (e.g. for a different role).
-    pub fn release(self) -> Usbpd {
-        self.usbpd
+    /// Turn a [`Request`] into a (position, RDO, voltage, current) tuple.
+    fn build_request(&self, req: Request) -> Option<(u8, Rdo, u16, u16)> {
+        match req {
+            Request::Fixed {
+                position,
+                current_ma,
+            } => {
+                if position == 0 || position > self.pdo_count {
+                    return None;
+                }
+                let p = self.pdo[(position - 1) as usize];
+                let ma = current_ma.min(p.max_current_ma());
+                Some((position, Rdo::fixed(position, ma, ma), p.voltage_mv(), ma))
+            }
+            Request::FixedVoltage {
+                voltage_mv,
+                current_ma,
+            } => {
+                let mut best: Option<(usize, Pdo)> = None;
+                let mut best_delta = u16::MAX;
+                for (i, p) in self.pdo[..self.pdo_count as usize].iter().copied().enumerate() {
+                    if p.pdo_type() != PdoType::FixedSupply {
+                        continue;
+                    }
+                    let delta = p.voltage_mv().abs_diff(voltage_mv);
+                    if delta < best_delta {
+                        best_delta = delta;
+                        best = Some((i, p));
+                    }
+                }
+                let (i, p) = best?;
+                let position = i as u8 + 1;
+                let ma = current_ma.unwrap_or(p.max_current_ma()).min(p.max_current_ma());
+                Some((position, Rdo::fixed(position, ma, ma), p.voltage_mv(), ma))
+            }
+            Request::Pps {
+                voltage_mv,
+                current_ma,
+            } => {
+                for (i, p) in self.pdo[..self.pdo_count as usize].iter().copied().enumerate() {
+                    if p.pdo_type() != PdoType::Apdo || p.apdo_type() != ApdoType::Pps {
+                        continue;
+                    }
+                    if (p.min_voltage_mv()..=p.max_voltage_mv()).contains(&voltage_mv) {
+                        let ma = current_ma.min(p.max_current_ma());
+                        let position = i as u8 + 1;
+                        return Some((position, Rdo::pps(position, voltage_mv, ma), voltage_mv, ma));
+                    }
+                }
+                None
+            }
+            Request::Avs {
+                voltage_mv,
+                current_ma,
+            } => {
+                for (i, p) in self.pdo[..self.pdo_count as usize].iter().copied().enumerate() {
+                    if p.pdo_type() != PdoType::Apdo {
+                        continue;
+                    }
+                    let (min_v, max_v, max_ma) = match p.apdo_type() {
+                        ApdoType::SprAvs => {
+                            let band = if voltage_mv >= 15000 {
+                                p.spr_avs_current_15_20v_ma()
+                            } else {
+                                p.spr_avs_current_9_15v_ma()
+                            };
+                            (9000, 20000, band)
+                        }
+                        ApdoType::EprAvs => (p.epr_min_voltage_mv(), p.epr_max_voltage_mv(), 0),
+                        _ => continue,
+                    };
+                    if voltage_mv >= min_v && voltage_mv <= max_v {
+                        let ma = if max_ma == 0 {
+                            current_ma
+                        } else {
+                            current_ma.min(max_ma)
+                        };
+                        let position = i as u8 + 1;
+                        return Some((position, Rdo::avs(position, voltage_mv, ma), voltage_mv, ma));
+                    }
+                }
+                None
+            }
+        }
+    }
+
+    /// Send a control message as a sink.
+    fn send_control(&mut self, msg: ControlMessage, delay: &impl DelayUs) -> bool {
+        let m = Message::control(msg, PowerRole::Sink, DataRole::Ufp, SpecRev::Rev3_0);
+        self.link.send_message(&m, SopType::Sop0, delay).is_ok()
+    }
+
+    /// Send a data message as a sink.
+    fn send_data(&mut self, msg: DataMessage, objects: &[u32], delay: &impl DelayUs) -> bool {
+        let Ok(m) = Message::data(
+            msg,
+            PowerRole::Sink,
+            DataRole::Ufp,
+            SpecRev::Rev3_0,
+            objects,
+        ) else {
+            return false;
+        };
+        self.link.send_message(&m, SopType::Sop0, delay).is_ok()
+    }
+
+    /// Advertise a fixed 5 V / 1 A sink capability.
+    fn send_sink_caps(&mut self, delay: &impl DelayUs) {
+        let cap = Pdo::fixed(5000, 1000);
+        self.send_data(DataMessage::SinkCapabilities, &[cap.bits()], delay);
     }
 }
 
@@ -615,51 +448,28 @@ pub enum SourceState {
 /// [`Error`](SourceState::Error); while [`Ready`](SourceState::Ready) it keeps
 /// listening and answers re-requests, `Get_Source_Cap` and `Soft_Reset`.
 pub struct PdSource {
-    usbpd: Usbpd,
+    link: Port,
     state: SourceState,
-    rx_ptr: *mut u8,
-    rx_len: usize,
-    tx_ptr: *mut u8,
-    tx_len: usize,
-    port: CcPort,
-    src_caps: &'static [u32],
+    cc_port: CcPort,
+    src_caps: &'static [Pdo],
     requested_position: u8,
     requested_mv: u16,
     requested_ma: u16,
 }
 
 impl PdSource {
-    /// Create a source engine, consuming the [`Usbpd`] driver.
+    /// Create a source engine over the given [`Port`].
     ///
-    /// `rx`/`tx` are the PD DMA buffers (4-byte aligned); `src_caps` is the
-    /// Source_Capabilities PDO table (up to 7 entries, 1-7 PDOs).
-    ///
-    /// # Safety
-    ///
-    /// `rx`/`tx` must stay alive and unmoved for the whole negotiation and
-    /// not be accessed concurrently.
-    pub unsafe fn new(
-        usbpd: Usbpd,
-        rx: &'static mut [u8],
-        tx: &'static mut [u8],
-        src_caps: &'static [u32],
-    ) -> Self {
+    /// `src_caps` is the Source_Capabilities PDO table (up to 7 entries).
+    pub fn new(link: Port, src_caps: &'static [Pdo]) -> Self {
         debug_assert!(
-            (rx.as_ptr() as usize).is_multiple_of(4),
-            "PD RX buffer must be 4-byte aligned"
-        );
-        debug_assert!(
-            (tx.as_ptr() as usize).is_multiple_of(4),
-            "PD TX buffer must be 4-byte aligned"
+            src_caps.len() <= 7,
+            "Source_Capabilities holds at most 7 PDOs"
         );
         Self {
-            usbpd,
+            link,
             state: SourceState::Idle,
-            rx_ptr: rx.as_mut_ptr(),
-            rx_len: rx.len(),
-            tx_ptr: tx.as_mut_ptr(),
-            tx_len: tx.len(),
-            port: CcPort::Cc1,
+            cc_port: CcPort::Cc1,
             src_caps,
             requested_position: 0,
             requested_mv: 0,
@@ -673,8 +483,8 @@ impl PdSource {
     }
 
     /// The CC port that is connected.
-    pub fn port(&self) -> CcPort {
-        self.port
+    pub fn cc_port(&self) -> CcPort {
+        self.cc_port
     }
 
     /// The PDO position requested by the sink (0 if none yet).
@@ -684,14 +494,12 @@ impl PdSource {
 
     /// The advertised PDO requested by the sink, if any.
     pub fn requested_pdo(&self) -> Option<Pdo> {
-        if self.requested_position == 0 || (self.requested_position as usize) > self.src_caps.len()
-        {
-            None
-        } else {
-            Some(Pdo::from_bits(
-                self.src_caps[(self.requested_position - 1) as usize],
-            ))
+        if self.requested_position == 0 {
+            return None;
         }
+        self.src_caps
+            .get((self.requested_position - 1) as usize)
+            .copied()
     }
 
     /// The output voltage (mV) requested by the sink (0 if none yet).
@@ -711,22 +519,13 @@ impl PdSource {
         self.requested_position = 0;
         self.requested_mv = 0;
         self.requested_ma = 0;
+        self.link.reset_msg_id();
     }
 
-    /// Record the sink's request from an RDO and its target PDO.
-    fn record_request(&mut self, position: u8, rdo: u32) {
-        self.requested_position = position;
-        let pdo = Pdo::from_bits(self.src_caps[(position - 1) as usize]);
-        self.requested_mv = match pdo.pdo_type() {
-            PdoType::FixedSupply => pdo.voltage_mv(),
-            PdoType::Apdo => pdo.max_voltage_mv(),
-            _ => 0,
-        };
-        self.requested_ma = match pdo.pdo_type() {
-            PdoType::FixedSupply => ((rdo & 0x3FF) * 10) as u16,
-            PdoType::Apdo => ((rdo & 0x7F) * 50) as u16,
-            _ => 0,
-        };
+    /// Consume the engine and return the underlying [`Port`], so the link can
+    /// be reused for another role.
+    pub fn into_port(self) -> Port {
+        self.link
     }
 
     /// Advance the negotiation (blocking).
@@ -734,176 +533,168 @@ impl PdSource {
     /// While [`Ready`](SourceState::Ready), each call waits up to 100 ms for
     /// a message so the source can answer re-requests, `Get_Source_Cap` and
     /// `Soft_Reset` while keeping power applied.
-    pub fn poll(&mut self, delay: &mut impl DelayUs) {
+    pub fn poll(&mut self, delay: &impl DelayUs) {
         match self.state {
-            SourceState::Idle => {
-                // Put a 330 µA pull-up on both CC lines and detect the sink.
-                for port in [CcPort::Cc1, CcPort::Cc2] {
-                    self.usbpd.set_cc_pull(port, CcPull::Pull330uA);
-                    if self.usbpd.check_cc(port) {
-                        self.port = port;
-                        self.usbpd.select_cc(port);
-                        start_receive(&mut self.usbpd, self.rx_ptr, self.rx_len);
-                        self.state = SourceState::AwaitSink;
-                        return;
-                    }
-                }
-            }
+            SourceState::Idle => self.detect(),
             SourceState::AwaitSink => {
                 delay.delay_ms(160);
                 self.state = SourceState::SendSrcCap;
             }
             SourceState::SendSrcCap => {
-                let ok = send_data(
-                    &mut self.usbpd,
-                    self.tx_ptr,
-                    self.tx_len,
-                    self.rx_ptr,
-                    self.rx_len,
-                    DataMessage::SourceCapabilities as u8,
-                    self.src_caps,
-                    (PowerRole::Source, DataRole::Dfp),
-                    SpecRev::Rev3_0,
-                    delay,
-                );
-                self.state = if ok {
+                self.state = if self.send_src_caps(delay) {
                     SourceState::AwaitRequest
                 } else {
                     SourceState::Error
                 };
             }
-            SourceState::AwaitRequest => {
-                let mut elapsed = 0u32;
-                loop {
-                    if let Some(msg) =
-                        wait_message(&mut self.usbpd, self.rx_ptr, self.rx_len, delay, 100)
-                    {
-                        match msg.header().message_type() {
-                            t if t == DataMessage::Request as u8 => {
-                                let rdo = msg.data_object(0);
-                                let pos = ((rdo >> 28) & 0xF) as u8;
-                                if pos == 0 || (pos as usize) > self.src_caps.len() {
-                                    // Not one of our PDOs: reject it.
-                                    send_control(
-                                        &mut self.usbpd,
-                                        self.tx_ptr,
-                                        self.tx_len,
-                                        self.rx_ptr,
-                                        self.rx_len,
-                                        ControlMessage::Reject,
-                                        (PowerRole::Source, DataRole::Dfp),
-                                        SpecRev::Rev3_0,
-                                        delay,
-                                    );
-                                } else {
-                                    self.record_request(pos, rdo);
-                                    self.state = SourceState::SendAccept;
-                                    return;
-                                }
-                            }
-                            t if t == ControlMessage::GetSourceCap as u8 => {
-                                // Re-advertise our capabilities.
-                                self.state = SourceState::SendSrcCap;
-                                return;
-                            }
-                            t if t == ControlMessage::SoftReset as u8 => {
-                                send_control(
-                                    &mut self.usbpd,
-                                    self.tx_ptr,
-                                    self.tx_len,
-                                    self.rx_ptr,
-                                    self.rx_len,
-                                    ControlMessage::Accept,
-                                    (PowerRole::Source, DataRole::Dfp),
-                                    SpecRev::Rev3_0,
-                                    delay,
-                                );
-                            }
-                            _ => {}
-                        }
-                    } else {
-                        elapsed += 100;
-                        if elapsed >= 5000 {
-                            self.state = SourceState::Error;
-                            return;
-                        }
-                    }
-                }
-            }
-            SourceState::SendAccept => {
-                let ok = send_control(
-                    &mut self.usbpd,
-                    self.tx_ptr,
-                    self.tx_len,
-                    self.rx_ptr,
-                    self.rx_len,
-                    ControlMessage::Accept,
-                    (PowerRole::Source, DataRole::Dfp),
-                    SpecRev::Rev3_0,
-                    delay,
-                );
-                if !ok {
-                    self.state = SourceState::Error;
-                    return;
-                }
-                delay.delay_ms(2);
-                let ok = send_control(
-                    &mut self.usbpd,
-                    self.tx_ptr,
-                    self.tx_len,
-                    self.rx_ptr,
-                    self.rx_len,
-                    ControlMessage::PsRdy,
-                    (PowerRole::Source, DataRole::Dfp),
-                    SpecRev::Rev3_0,
-                    delay,
-                );
-                self.state = if ok {
-                    SourceState::Ready
-                } else {
-                    SourceState::Error
-                };
-            }
-            SourceState::Ready => {
-                if let Some(msg) =
-                    wait_message(&mut self.usbpd, self.rx_ptr, self.rx_len, delay, 100)
-                {
-                    match msg.header().message_type() {
-                        t if t == DataMessage::Request as u8 => {
-                            let rdo = msg.data_object(0);
-                            let pos = ((rdo >> 28) & 0xF) as u8;
-                            if pos != 0 && (pos as usize) <= self.src_caps.len() {
-                                self.record_request(pos, rdo);
-                                self.state = SourceState::SendAccept;
-                            }
-                        }
-                        t if t == ControlMessage::GetSourceCap as u8 => {
-                            self.state = SourceState::SendSrcCap;
-                        }
-                        t if t == ControlMessage::SoftReset as u8 => {
-                            send_control(
-                                &mut self.usbpd,
-                                self.tx_ptr,
-                                self.tx_len,
-                                self.rx_ptr,
-                                self.rx_len,
-                                ControlMessage::Accept,
-                                (PowerRole::Source, DataRole::Dfp),
-                                SpecRev::Rev3_0,
-                                delay,
-                            );
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            SourceState::AwaitRequest => self.await_request(delay),
+            SourceState::SendAccept => self.send_accept(delay),
+            SourceState::Ready => self.ready(delay),
             SourceState::Error => {}
         }
     }
 
-    /// Consume the engine and return the underlying [`Usbpd`] driver, so the
-    /// transceiver can be reconfigured (e.g. for a different role).
-    pub fn release(self) -> Usbpd {
-        self.usbpd
+    /// Put a 330 µA pull-up on both CC lines and detect the sink.
+    fn detect(&mut self) {
+        for p in [CcPort::Cc1, CcPort::Cc2] {
+            let connected = {
+                let phy = self.link.phy();
+                phy.set_cc_pull(p, CcPull::Pull330uA);
+                phy.check_cc(p)
+            };
+            if connected {
+                self.cc_port = p;
+                self.link.phy().select_cc(p);
+                self.link.start();
+                self.state = SourceState::AwaitSink;
+                return;
+            }
+        }
+    }
+
+    /// Wait for the sink's `Request`, answering `Get_Source_Cap` / `Soft_Reset`.
+    fn await_request(&mut self, delay: &impl DelayUs) {
+        let mut elapsed = 0u32;
+        while elapsed < 5000 {
+            match self.link.receive(100, delay) {
+                Some(msg) => match msg.header().message_type() {
+                    t if t == DataMessage::Request as u8 => {
+                        let rdo = Rdo::from_bits(msg.object(0));
+                        let pos = rdo.position();
+                        if pos == 0 || (pos as usize) > self.src_caps.len() {
+                            // Not one of our PDOs: reject it.
+                            self.send_control(ControlMessage::Reject, delay);
+                        } else {
+                            self.record_request(rdo);
+                            self.state = SourceState::SendAccept;
+                            return;
+                        }
+                    }
+                    t if t == ControlMessage::GetSourceCap as u8 => {
+                        // Re-advertise our capabilities.
+                        self.state = SourceState::SendSrcCap;
+                        return;
+                    }
+                    t if t == ControlMessage::SoftReset as u8 => {
+                        self.send_control(ControlMessage::Accept, delay);
+                    }
+                    _ => {}
+                },
+                None => elapsed += 100,
+            }
+        }
+        self.state = SourceState::Error;
+    }
+
+    /// Send `Accept` then `PS_RDY`.
+    fn send_accept(&mut self, delay: &impl DelayUs) {
+        if !self.send_control(ControlMessage::Accept, delay) {
+            self.state = SourceState::Error;
+            return;
+        }
+        delay.delay_ms(2);
+        self.state = if self.send_control(ControlMessage::PsRdy, delay) {
+            SourceState::Ready
+        } else {
+            SourceState::Error
+        };
+    }
+
+    /// Keep answering the sink while power is delivered.
+    fn ready(&mut self, delay: &impl DelayUs) {
+        if let Some(msg) = self.link.receive(100, delay) {
+            match msg.header().message_type() {
+                t if t == DataMessage::Request as u8 => {
+                    let rdo = Rdo::from_bits(msg.object(0));
+                    let pos = rdo.position();
+                    if pos != 0 && (pos as usize) <= self.src_caps.len() {
+                        self.record_request(rdo);
+                        self.state = SourceState::SendAccept;
+                    }
+                }
+                t if t == ControlMessage::GetSourceCap as u8 => {
+                    self.state = SourceState::SendSrcCap;
+                }
+                t if t == ControlMessage::SoftReset as u8 => {
+                    self.send_control(ControlMessage::Accept, delay);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Record the sink's request from its RDO and target PDO.
+    fn record_request(&mut self, rdo: Rdo) {
+        let pos = rdo.position();
+        self.requested_position = pos;
+        let Some(pdo) = self.src_caps.get((pos as usize).wrapping_sub(1)) else {
+            self.requested_mv = 0;
+            self.requested_ma = 0;
+            return;
+        };
+        match pdo.pdo_type() {
+            PdoType::FixedSupply => {
+                self.requested_mv = pdo.voltage_mv();
+                self.requested_ma = rdo.operating_current_ma();
+            }
+            PdoType::Apdo => match pdo.apdo_type() {
+                ApdoType::Pps => {
+                    self.requested_mv = rdo.pps_output_voltage_mv();
+                    self.requested_ma = rdo.output_current_ma();
+                }
+                ApdoType::EprAvs | ApdoType::SprAvs => {
+                    self.requested_mv = rdo.avs_output_voltage_mv();
+                    self.requested_ma = rdo.output_current_ma();
+                }
+            },
+            _ => {
+                self.requested_mv = 0;
+                self.requested_ma = 0;
+            }
+        }
+    }
+
+    /// Advertise the configured Source_Capabilities.
+    fn send_src_caps(&mut self, delay: &impl DelayUs) -> bool {
+        let mut objects = [0u32; 7];
+        for (i, p) in self.src_caps.iter().enumerate() {
+            objects[i] = p.bits();
+        }
+        let Ok(m) = Message::data(
+            DataMessage::SourceCapabilities,
+            PowerRole::Source,
+            DataRole::Dfp,
+            SpecRev::Rev3_0,
+            &objects[..self.src_caps.len()],
+        ) else {
+            return false;
+        };
+        self.link.send_message(&m, SopType::Sop0, delay).is_ok()
+    }
+
+    /// Send a control message as a source.
+    fn send_control(&mut self, msg: ControlMessage, delay: &impl DelayUs) -> bool {
+        let m = Message::control(msg, PowerRole::Source, DataRole::Dfp, SpecRev::Rev3_0);
+        self.link.send_message(&m, SopType::Sop0, delay).is_ok()
     }
 }

@@ -30,7 +30,7 @@ fn defmt_timestamp() -> u64 {
 }
 
 use ch32x035::gpio::Pins;
-use ch32x035::usbpd::{make_fixed_pdo, Usbpd};
+use ch32x035::usbpd::{Pdo, Port, Request, Usbpd};
 use ch32x035::{
     main, pac, Clocks, CorePeripherals, Delay, DelayUs, PdSink, PdSource, Rcc, SinkState,
     SourceState,
@@ -44,28 +44,16 @@ static mut RX: Align4 = Align4([0; 34]);
 static mut TX: Align4 = Align4([0; 34]);
 
 /// Source_Capabilities when acting as a source: 5 V/3 A.
-static SRC_CAPS: [u32; 1] = [make_fixed_pdo(5000, 3000)];
+static SRC_CAPS: [Pdo; 1] = [Pdo::fixed(5000, 3000)];
 
-/// Build the sink engine over the current `usbpd` (returns it on drop).
-unsafe fn make_sink(usbpd: Usbpd) -> PdSink {
-    // SAFETY: RX/TX are `static` and stay alive (and unaliased) for the whole
-    // program; both are 4-byte aligned via the `Align4` wrapper.
-    unsafe {
-        let rx: &'static mut [u8] = &mut (*core::ptr::addr_of_mut!(RX)).0;
-        let tx: &'static mut [u8] = &mut (*core::ptr::addr_of_mut!(TX)).0;
-        PdSink::new(usbpd, rx, tx)
-    }
+/// Build the sink engine over the given `port` (returns it via `into_port`).
+fn make_sink(port: Port) -> PdSink {
+    PdSink::new(port)
 }
 
-/// Build the source engine over the current `usbpd` (returns it on drop).
-unsafe fn make_source(usbpd: Usbpd) -> PdSource {
-    // SAFETY: RX/TX are `static` and stay alive (and unaliased) for the whole
-    // program; both are 4-byte aligned via the `Align4` wrapper.
-    unsafe {
-        let rx: &'static mut [u8] = &mut (*core::ptr::addr_of_mut!(RX)).0;
-        let tx: &'static mut [u8] = &mut (*core::ptr::addr_of_mut!(TX)).0;
-        PdSource::new(usbpd, rx, tx, &SRC_CAPS)
-    }
+/// Build the source engine over the given `port` (returns it via `into_port`).
+fn make_source(port: Port) -> PdSource {
+    PdSource::new(port, &SRC_CAPS)
 }
 
 #[main]
@@ -93,26 +81,36 @@ fn main() -> ! {
     cc2.into_input();
 
     let usbpd = Usbpd::init(USBPD, &AFIO, &mut rcc);
-    let mut delay = Delay::init(cp.SYST, clocks.sysclk_hz());
+    let delay = Delay::init(cp.SYST, clocks.sysclk_hz());
 
     // SAFETY: RX/TX are `static` and stay alive for the whole program.
-    let mut usbpd = usbpd;
+    let mut port = unsafe {
+        let rx: &'static mut [u8] = &mut (*core::ptr::addr_of_mut!(RX)).0;
+        let tx: &'static mut [u8] = &mut (*core::ptr::addr_of_mut!(TX)).0;
+        Port::new(usbpd, rx, tx)
+    };
 
     loop {
         // ---- Phase 1: act as a sink (draw power) ----
-        let mut sink = unsafe { make_sink(usbpd) };
+        let mut sink = make_sink(port);
         loop {
-            sink.poll(&mut delay);
+            sink.poll(&delay);
             match sink.state() {
                 SinkState::NeedRequest => {
-                    sink.request_voltage(5000, None, &mut delay);
+                    sink.request(
+                        Request::FixedVoltage {
+                            voltage_mv: 5000,
+                            current_ma: None,
+                        },
+                        &delay,
+                    );
                 }
                 SinkState::Ready => {
                     defmt::info!(
                         "DRP as SINK: {} mV / {} mA (CC{})",
                         sink.requested_mv(),
                         sink.requested_ma(),
-                        sink.port() as u8 + 1
+                        sink.cc_port() as u8 + 1
                     );
                     // Demo: hold this role for a while, then switch.
                     delay.delay_ms(2000);
@@ -123,20 +121,20 @@ fn main() -> ! {
                 _ => {}
             }
         }
-        usbpd = sink.release();
+        port = sink.into_port();
         delay.delay_ms(300);
 
         // ---- Phase 2: act as a source (supply power) ----
-        let mut source = unsafe { make_source(usbpd) };
+        let mut source = make_source(port);
         loop {
-            source.poll(&mut delay);
+            source.poll(&delay);
             match source.state() {
                 SourceState::Ready => {
                     defmt::info!(
                         "DRP as SOURCE: {} mV / {} mA (CC{})",
                         source.requested_mv(),
                         source.requested_ma(),
-                        source.port() as u8 + 1
+                        source.cc_port() as u8 + 1
                     );
                     delay.delay_ms(2000);
                     break;
@@ -146,7 +144,7 @@ fn main() -> ! {
                 _ => {}
             }
         }
-        usbpd = source.release();
+        port = source.into_port();
         delay.delay_ms(300);
     }
 }

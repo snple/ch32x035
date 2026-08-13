@@ -1,17 +1,16 @@
-//! USB PD protocol layer: message headers, data objects and build/parse
-//! helpers.
+//! USB PD protocol layer: pure data types and encode/decode helpers.
 //!
-//! This layer turns raw frame bytes (handled by [`super::phy`]) into typed PD
-//! messages and provides the request/response primitives with automatic
-//! GoodCRC acknowledgement and Message-ID management.
+//! Everything here is hardware-independent: message headers, data objects
+//! ([`Pdo`] / [`Rdo`]) and the byte-level encode/decode of PD frames. The
+//! transceiver (BMC, SOP, CRC) lives in [`super::phy`], and the blocking
+//! transmit/receive logic (GoodCRC, Message-ID) in [`super::port`].
 //!
 //! Note: the CH32X035 header layout matches the USB PD spec (`NDO` at
 //! bits `[14:12]`, `MsgID` at `[11:9]`, `DRole` at bit 5, `SpecRev` at
 //! `[7:6]`). Data objects (PDO/RDO) follow the standard layout as well.
 
-use crate::delay::DelayUs;
-
-use super::phy::{SopType, Usbpd};
+/// Maximum number of data objects carried by a single (non-extended) message.
+pub const MAX_DATA_OBJECTS: usize = 7;
 
 /// Maximum data bytes carried in a single extended-message chunk (a chunk
 /// frame is the 2-byte message header, the 2-byte extended header and 26
@@ -401,102 +400,168 @@ pub enum PdError {
     ChunkOutOfOrder,
 }
 
-/// Build a PD message into `tx`: the 16-bit `header` plus `data` objects.
+/// An outgoing PD message: a [`Header`] plus up to [`MAX_DATA_OBJECTS`]
+/// data objects.
 ///
-/// Returns the message length in bytes (`2 + 4 * data.len()`). The header's
-/// NDO field is set from `data.len()` automatically; the MsgID field is left
-/// untouched (set it with [`Header::with_message_id`], or let
-/// [`Usbpd::send_message`] inject it).
-///
-/// `tx` should be 4-byte aligned (the DMA engine reads it directly).
-///
-/// # Errors
-///
-/// [`PdError::TooManyObjects`] if `data.len() > 7`, [`PdError::BufferTooSmall`]
-/// if `tx` is too small.
-pub fn build_message(tx: &mut [u8], header: Header, data: &[u32]) -> Result<usize, PdError> {
-    let n = data.len();
-    if n > 7 {
-        return Err(PdError::TooManyObjects);
+/// Build one with [`Message::control`] or [`Message::data`], then send it
+/// with [`super::port::Port::send_message`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Message {
+    header: Header,
+    objects: [u32; MAX_DATA_OBJECTS],
+    num_objects: u8,
+}
+
+impl Message {
+    /// A control message (no data objects).
+    pub const fn control(
+        msg_type: ControlMessage,
+        power: PowerRole,
+        data: DataRole,
+        spec: SpecRev,
+    ) -> Self {
+        Self {
+            header: Header::new()
+                .with_message_type(msg_type as u8)
+                .with_port_power_role(power)
+                .with_port_data_role(data)
+                .with_spec_revision(spec),
+            objects: [0; MAX_DATA_OBJECTS],
+            num_objects: 0,
+        }
     }
-    let len = 2 + n * 4;
-    if tx.len() < len {
-        return Err(PdError::BufferTooSmall);
+
+    /// A data message carrying the given data objects.
+    ///
+    /// # Errors
+    ///
+    /// [`PdError::TooManyObjects`] if `objects.len() > MAX_DATA_OBJECTS`.
+    pub fn data(
+        msg_type: DataMessage,
+        power: PowerRole,
+        data: DataRole,
+        spec: SpecRev,
+        objects: &[u32],
+    ) -> Result<Self, PdError> {
+        if objects.len() > MAX_DATA_OBJECTS {
+            return Err(PdError::TooManyObjects);
+        }
+        let mut arr = [0u32; MAX_DATA_OBJECTS];
+        arr[..objects.len()].copy_from_slice(objects);
+        Ok(Self {
+            header: Header::new()
+                .with_message_type(msg_type as u8)
+                .with_port_power_role(power)
+                .with_port_data_role(data)
+                .with_spec_revision(spec),
+            objects: arr,
+            num_objects: objects.len() as u8,
+        })
     }
-    let header = header.with_num_data_objects(n as u8);
-    tx[0] = header.bits() as u8;
-    tx[1] = (header.bits() >> 8) as u8;
-    for (i, d) in data.iter().enumerate() {
-        tx[2 + i * 4..2 + i * 4 + 4].copy_from_slice(&d.to_le_bytes());
+
+    /// The message header (its number-of-objects field is filled in by
+    /// [`encode`](Self::encode)).
+    pub const fn header(&self) -> Header {
+        self.header
     }
-    Ok(len)
+
+    /// The data objects carried by the message.
+    pub fn objects(&self) -> &[u32] {
+        &self.objects[..self.num_objects as usize]
+    }
+
+    /// Encode the message into `buf` (header + data objects, little-endian).
+    ///
+    /// Returns the encoded length in bytes (`2 + 4 * num_objects`). `buf`
+    /// must be 4-byte aligned (the DMA engine reads it directly); the
+    /// header's NDO field is set here, its MsgID field is left for the link
+    /// layer to inject.
+    ///
+    /// # Errors
+    ///
+    /// [`PdError::BufferTooSmall`] if `buf` is too small.
+    pub fn encode(&self, buf: &mut [u8]) -> Result<usize, PdError> {
+        let len = 2 + self.num_objects as usize * 4;
+        if buf.len() < len {
+            return Err(PdError::BufferTooSmall);
+        }
+        let header = self.header.with_num_data_objects(self.num_objects);
+        buf[0] = header.bits() as u8;
+        buf[1] = (header.bits() >> 8) as u8;
+        for (i, o) in self.objects[..self.num_objects as usize].iter().enumerate() {
+            let off = 2 + i * 4;
+            buf[off..off + 4].copy_from_slice(&o.to_le_bytes());
+        }
+        Ok(len)
+    }
 }
 
 /// A PD message received from the bus.
 ///
-/// `data` is a byte slice of the data objects (not including the header or
-/// the trailing CRC).
+/// Data objects are copied out of the DMA buffer, so this type owns its data
+/// and carries no lifetime.
 #[derive(Clone, Copy, Debug)]
-pub struct RxMessage<'a> {
+pub struct RxMessage {
     header: Header,
-    data: &'a [u8],
+    objects: [u32; MAX_DATA_OBJECTS],
+    num_objects: u8,
 }
 
-impl<'a> RxMessage<'a> {
+impl RxMessage {
     /// The parsed message header.
     pub const fn header(&self) -> Header {
         self.header
     }
 
-    /// The data-object bytes (`4 * NDO` bytes).
-    pub const fn data(&self) -> &'a [u8] {
-        self.data
-    }
-
     /// Number of data objects in the message.
-    pub fn num_data_objects(&self) -> u8 {
-        self.header.num_data_objects()
+    pub const fn num_data_objects(&self) -> u8 {
+        self.num_objects
     }
 
-    /// Read the `i`-th data object (little-endian u32).
+    /// The data objects of the message.
+    pub fn objects(&self) -> &[u32] {
+        &self.objects[..self.num_objects as usize]
+    }
+
+    /// Read the `i`-th data object.
     ///
     /// Panics if `i >= num_data_objects()`.
-    pub fn data_object(&self, i: usize) -> u32 {
-        let off = i * 4;
-        u32::from_le_bytes([
-            self.data[off],
-            self.data[off + 1],
-            self.data[off + 2],
-            self.data[off + 3],
-        ])
+    pub fn object(&self, i: usize) -> u32 {
+        self.objects[i]
     }
-}
 
-/// Parse a received DMA buffer into a [`RxMessage`].
-///
-/// The header's NDO field determines how many data-object bytes are included.
-/// Returns `None` if the buffer is too short.
-pub fn parse_message<'a>(rx: &'a [u8]) -> Option<RxMessage<'a>> {
-    if rx.len() < 2 {
-        return None;
+    /// Decode a received DMA buffer into an [`RxMessage`].
+    ///
+    /// The header's NDO field determines how many data-object bytes are
+    /// copied. Returns `None` if the buffer is too short.
+    pub fn decode(rx: &[u8]) -> Option<Self> {
+        if rx.len() < 2 {
+            return None;
+        }
+        let header = Header::from_bits(u16::from_le_bytes([rx[0], rx[1]]));
+        let n = header.num_data_objects() as usize;
+        if n > MAX_DATA_OBJECTS || rx.len() < 2 + n * 4 {
+            return None;
+        }
+        let mut objects = [0u32; MAX_DATA_OBJECTS];
+        for (i, o) in objects[..n].iter_mut().enumerate() {
+            let off = 2 + i * 4;
+            *o = u32::from_le_bytes([rx[off], rx[off + 1], rx[off + 2], rx[off + 3]]);
+        }
+        Some(Self {
+            header,
+            objects,
+            num_objects: n as u8,
+        })
     }
-    let header = Header::from_bits(u16::from_le_bytes([rx[0], rx[1]]));
-    let need = 2 + header.num_data_objects() as usize * 4;
-    if rx.len() < need {
-        return None;
-    }
-    Some(RxMessage {
-        header,
-        data: &rx[2..need],
-    })
 }
 
 /// Build one extended-message chunk into `tx`.
 ///
 /// Layout: 2-byte message header (Extended set, NDO = 7) + 2-byte
 /// [`ExtendedHeader`] + up to [`MAX_CHUNK_DATA`] data bytes. The header's
-/// MsgID is injected by [`Usbpd::send_message`]; the extended bit and NDO
-/// are set here.
+/// MsgID is injected by the link layer; the extended bit and NDO are set
+/// here.
 ///
 /// Returns the chunk length in bytes (`4 + chunk_data.len()`).
 ///
@@ -504,7 +569,7 @@ pub fn parse_message<'a>(rx: &'a [u8]) -> Option<RxMessage<'a>> {
 ///
 /// [`PdError::ChunkTooLong`] if `chunk_data.len() > MAX_CHUNK_DATA`,
 /// [`PdError::BufferTooSmall`] if `tx` is too small.
-pub fn build_extended_chunk(
+pub fn encode_extended_chunk(
     tx: &mut [u8],
     header: Header,
     ext_header: ExtendedHeader,
@@ -527,14 +592,18 @@ pub fn build_extended_chunk(
 }
 
 /// A received extended-message chunk.
+///
+/// The chunk payload is copied out of the DMA buffer, so this type owns its
+/// data and carries no lifetime.
 #[derive(Clone, Copy, Debug)]
-pub struct RxExtendedChunk<'a> {
+pub struct RxExtendedChunk {
     header: Header,
     ext_header: ExtendedHeader,
-    data: &'a [u8],
+    data: [u8; MAX_CHUNK_DATA],
+    data_len: u8,
 }
 
-impl<'a> RxExtendedChunk<'a> {
+impl RxExtendedChunk {
     /// The parsed message header.
     pub const fn header(&self) -> Header {
         self.header
@@ -546,17 +615,18 @@ impl<'a> RxExtendedChunk<'a> {
     }
 
     /// The chunk's data bytes (everything after the two headers).
-    pub const fn data(&self) -> &'a [u8] {
-        self.data
+    pub fn data(&self) -> &[u8] {
+        &self.data[..self.data_len as usize]
     }
 }
 
 /// Parse a received DMA buffer as an extended-message chunk.
 ///
-/// Returns `None` if the buffer is too short or the message header is not
-/// an extended message. The chunk's data length is whatever remains after
-/// the two headers (bound it with the PHY `received_len()`).
-pub fn parse_extended_chunk(rx: &[u8]) -> Option<RxExtendedChunk<'_>> {
+/// Returns `None` if the buffer is too short, the message header is not an
+/// extended message, or the chunk payload exceeds [`MAX_CHUNK_DATA`]. The
+/// chunk's data length is whatever remains after the two headers (bound it
+/// with the PHY `received_len()`).
+pub fn parse_extended_chunk(rx: &[u8]) -> Option<RxExtendedChunk> {
     if rx.len() < 4 {
         return None;
     }
@@ -565,10 +635,17 @@ pub fn parse_extended_chunk(rx: &[u8]) -> Option<RxExtendedChunk<'_>> {
         return None;
     }
     let ext_header = ExtendedHeader::from_bits(u16::from_le_bytes([rx[2], rx[3]]));
+    let payload = &rx[4..];
+    if payload.len() > MAX_CHUNK_DATA {
+        return None;
+    }
+    let mut data = [0u8; MAX_CHUNK_DATA];
+    data[..payload.len()].copy_from_slice(payload);
     Some(RxExtendedChunk {
         header,
         ext_header,
-        data: &rx[4..],
+        data,
+        data_len: payload.len() as u8,
     })
 }
 
@@ -716,6 +793,42 @@ impl Pdo {
         self.0
     }
 
+    /// Build a fixed-supply PDO.
+    ///
+    /// # Panics
+    ///
+    /// Debug builds panic if `voltage_mv` (50 mV units) or `max_current_ma`
+    /// (10 mA units) overflow their fields.
+    pub const fn fixed(voltage_mv: u16, max_current_ma: u16) -> Self {
+        let v = (voltage_mv / 50) as u32 & 0x3FF;
+        let i = (max_current_ma / 10) as u32 & 0x3FF;
+        debug_assert!(voltage_mv / 50 <= 0x3FF, "voltage out of range");
+        debug_assert!(max_current_ma / 10 <= 0x3FF, "current out of range");
+        Self((v << 10) | i)
+    }
+
+    /// Build a SPR AVS (PD 3.1) APDO.
+    ///
+    /// The voltage range is fixed at 9–20 V; the two fields hold the maximum
+    /// current in the 9–15 V band (bits `[19:10]`, 10 mA units) and the
+    /// 15–20 V band (bits `[9:0]`, 10 mA units).
+    pub const fn spr_avs(current_9_15v_ma: u16, current_15_20v_ma: u16) -> Self {
+        let c1 = (current_9_15v_ma / 10) as u32 & 0x3FF;
+        let c2 = (current_15_20v_ma / 10) as u32 & 0x3FF;
+        Self((0b11u32 << 30) | (0b10u32 << 28) | (c1 << 10) | c2)
+    }
+
+    /// Build an EPR AVS (PD 3.1) APDO.
+    ///
+    /// `min_mv`/`max_mv` are the adjustable range (bits `[15:8]` / `[25:17]`,
+    /// 100 mV units) and `pd_power_w` the rated power in watts (bits `[7:0]`).
+    pub const fn epr_avs(min_mv: u16, max_mv: u16, pd_power_w: u16) -> Self {
+        let minv = (min_mv / 100) as u32 & 0xFF;
+        let maxv = (max_mv / 100) as u32 & 0x1FF;
+        let pdp = (pd_power_w as u32) & 0xFF;
+        Self((0b11u32 << 30) | (0b01u32 << 28) | (maxv << 17) | (minv << 8) | pdp)
+    }
+
     /// The PDO type (bits `[31:30]`).
     pub const fn pdo_type(self) -> PdoType {
         match self.0 >> 30 {
@@ -821,77 +934,88 @@ pub enum ApdoType {
     SprAvs = 0b10,
 }
 
-/// Build a standard fixed-supply Power Data Object.
+/// A Request Data Object — the sink's answer to a Source_Capabilities PDO.
 ///
-/// # Panics
-///
-/// Debug builds panic if `voltage_mv` (50 mV units) or `max_current_ma`
-/// (10 mA units) overflow their fields.
-pub const fn make_fixed_pdo(voltage_mv: u16, max_current_ma: u16) -> u32 {
-    let v = (voltage_mv / 50) as u32 & 0x3FF;
-    let i = (max_current_ma / 10) as u32 & 0x3FF;
-    debug_assert!(voltage_mv / 50 <= 0x3FF, "voltage out of range");
-    debug_assert!(max_current_ma / 10 <= 0x3FF, "current out of range");
-    (v << 10) | i
-}
+/// Build one with [`Rdo::fixed`], [`Rdo::pps`] or [`Rdo::avs`], depending on
+/// the kind of PDO being requested.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Rdo(u32);
 
-/// Build a SPR AVS (SPR adjustable voltage supply, PD 3.1) APDO.
-///
-/// The voltage range is fixed at 9–20 V; the two fields hold the maximum
-/// current in the 9–15 V band (bits `[19:10]`, 10 mA units) and the 15–20 V
-/// band (bits `[9:0]`, 10 mA units).
-pub const fn make_spr_avs_pdo(current_9_15v_ma: u16, current_15_20v_ma: u16) -> u32 {
-    let c1 = (current_9_15v_ma / 10) as u32 & 0x3FF;
-    let c2 = (current_15_20v_ma / 10) as u32 & 0x3FF;
-    (0b11u32 << 30) | (0b10u32 << 28) | (c1 << 10) | c2
-}
+impl Rdo {
+    /// Build a RDO from its raw 32-bit value.
+    pub const fn from_bits(bits: u32) -> Self {
+        Self(bits)
+    }
 
-/// Build an EPR AVS (extended power range adjustable voltage supply) APDO.
-///
-/// `min_mv`/`max_mv` are the adjustable range (bits `[15:8]` / `[25:17]`,
-/// 100 mV units) and `pd_power_w` the rated power in watts (bits `[7:0]`).
-pub const fn make_epr_avs_pdo(min_mv: u16, max_mv: u16, pd_power_w: u16) -> u32 {
-    let minv = (min_mv / 100) as u32 & 0xFF;
-    let maxv = (max_mv / 100) as u32 & 0x1FF;
-    let pdp = (pd_power_w as u32) & 0xFF;
-    (0b11u32 << 30) | (0b01u32 << 28) | (maxv << 17) | (minv << 8) | pdp
-}
+    /// The raw 32-bit RDO value.
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
 
-/// Build a standard fixed-supply Request Data Object (RDO).
-///
-/// `position` is the 1-based index of the requested PDO (bits `[31:28]`),
-/// `operating_ma` goes into the operating-current field (bits `[19:10]`,
-/// 10 mA units) and `max_ma` into the maximum-current field (bits `[9:0]`,
-/// 10 mA units).
-pub fn make_request_rdo(position: u8, operating_ma: u16, max_ma: u16) -> u32 {
-    let pos = ((position as u32) & 0xF) << 28;
-    let op = ((operating_ma / 10) as u32) & 0x3FF;
-    let max = ((max_ma / 10) as u32) & 0x3FF;
-    pos | (op << 10) | max
-}
+    /// The 1-based index of the requested PDO (bits `[31:28]`).
+    pub const fn position(self) -> u8 {
+        ((self.0 >> 28) & 0xF) as u8
+    }
 
-/// Build a PPS (programmable power supply, PD 3.0) Request Data Object.
-///
-/// Standard layout: object position bits `[31:28]`, output voltage in
-/// 20 mV units bits `[20:9]`, operating current in 50 mA units bits
-/// `[6:0]`.
-pub fn make_pps_rdo(position: u8, output_mv: u16, current_ma: u16) -> u32 {
-    let pos = ((position as u32) & 0xF) << 28;
-    let v = ((output_mv / 20) as u32) & 0xFFF;
-    let c = ((current_ma / 50) as u32) & 0x7F;
-    pos | (v << 9) | c
-}
+    /// A fixed-supply request.
+    ///
+    /// `operating_ma`/`max_ma` are the operating and maximum currents
+    /// (10 mA units, bits `[19:10]` / `[9:0]`).
+    pub const fn fixed(position: u8, operating_ma: u16, max_ma: u16) -> Self {
+        let pos = ((position as u32) & 0xF) << 28;
+        let op = ((operating_ma / 10) as u32) & 0x3FF;
+        let max = ((max_ma / 10) as u32) & 0x3FF;
+        Self(pos | (op << 10) | max)
+    }
 
-/// Build an AVS (adjustable voltage supply) Request Data Object.
-///
-/// Standard layout: object position bits `[31:28]`, output voltage in
-/// 25 mV units bits `[20:9]`, operating current in 50 mA units bits
-/// `[6:0]`.
-pub fn make_avs_rdo(position: u8, output_mv: u16, current_ma: u16) -> u32 {
-    let pos = ((position as u32) & 0xF) << 28;
-    let v = ((output_mv / 25) as u32) & 0xFFF;
-    let c = ((current_ma / 50) as u32) & 0x7F;
-    pos | (v << 9) | c
+    /// A PPS (programmable power supply) request.
+    ///
+    /// `output_mv` is the requested output voltage (20 mV units, bits
+    /// `[20:9]`) and `current_ma` the operating current (50 mA units, bits
+    /// `[6:0]`).
+    pub const fn pps(position: u8, output_mv: u16, current_ma: u16) -> Self {
+        let pos = ((position as u32) & 0xF) << 28;
+        let v = ((output_mv / 20) as u32) & 0xFFF;
+        let c = ((current_ma / 50) as u32) & 0x7F;
+        Self(pos | (v << 9) | c)
+    }
+
+    /// An AVS (adjustable voltage supply) request.
+    ///
+    /// `output_mv` is the requested output voltage (25 mV units, bits
+    /// `[20:9]`) and `current_ma` the operating current (50 mA units, bits
+    /// `[6:0]`).
+    pub const fn avs(position: u8, output_mv: u16, current_ma: u16) -> Self {
+        let pos = ((position as u32) & 0xF) << 28;
+        let v = ((output_mv / 25) as u32) & 0xFFF;
+        let c = ((current_ma / 50) as u32) & 0x7F;
+        Self(pos | (v << 9) | c)
+    }
+
+    /// Fixed-supply operating current in mA (bits `[19:10]`, 10 mA units).
+    pub const fn operating_current_ma(self) -> u16 {
+        (((self.0 >> 10) & 0x3FF) * 10) as u16
+    }
+
+    /// Fixed-supply maximum current in mA (bits `[9:0]`, 10 mA units).
+    pub const fn max_current_ma(self) -> u16 {
+        ((self.0 & 0x3FF) * 10) as u16
+    }
+
+    /// PPS output voltage in mV (bits `[20:9]`, 20 mV units).
+    pub const fn pps_output_voltage_mv(self) -> u16 {
+        (((self.0 >> 9) & 0xFFF) * 20) as u16
+    }
+
+    /// AVS output voltage in mV (bits `[20:9]`, 25 mV units).
+    pub const fn avs_output_voltage_mv(self) -> u16 {
+        (((self.0 >> 9) & 0xFFF) * 25) as u16
+    }
+
+    /// PPS/AVS operating current in mA (bits `[6:0]`, 50 mA units).
+    pub const fn output_current_ma(self) -> u16 {
+        ((self.0 & 0x7F) * 50) as u16
+    }
 }
 
 /// EPR_Mode action.
@@ -919,150 +1043,8 @@ pub const fn make_epr_mode(action: EprModeAction, data: u8) -> u32 {
 /// Build an EPR_Request payload: the Request Data Object followed by a copy
 /// of the requested PDO (for source verification).
 ///
-/// Returns the two data objects to pass to [`build_message`] with message
+/// Returns the two data objects to pass to [`Message::data`] with message
 /// type [`DataMessage::EprRequest`].
 pub const fn make_epr_request(rdo: u32, pdo: u32) -> [u32; 2] {
     [rdo, pdo]
-}
-
-impl Usbpd {
-    /// The outgoing Message ID (an even value `0, 2, ..., 14`).
-    ///
-    /// Injected into the header by [`send_message`](Self::send_message);
-    /// reset by [`reset_msg_id`](Self::reset_msg_id).
-    pub fn msg_id(&self) -> u8 {
-        self.msg_id
-    }
-
-    /// Reset the outgoing Message ID to 0.
-    pub fn reset_msg_id(&mut self) {
-        self.msg_id = 0;
-    }
-
-    /// Send a PD message (already built by [`build_message`]) and wait for
-    /// the GoodCRC acknowledgement.
-    ///
-    /// The header's MsgID field is injected automatically and incremented by
-    /// 2 after a successful (acknowledged) send. The message is transmitted
-    /// with up to 3 attempts, each waiting up to 750 µs for GoodCRC.
-    ///
-    /// `rx` is the DMA receive buffer: a GoodCRC must be receivable, so
-    /// receive mode must already be started with
-    /// [`start_receive`](Self::start_receive) and `rx` must be the same
-    /// buffer. `delay` is used for the acknowledgement timeout.
-    ///
-    /// # Errors
-    ///
-    /// [`PdError::NoAck`] if no GoodCRC is received after the retries.
-    pub fn send_message(
-        &mut self,
-        tx: &mut [u8],
-        len: usize,
-        sop: SopType,
-        rx: &[u8],
-        delay: &impl DelayUs,
-    ) -> Result<(), PdError> {
-        // Inject the outgoing Message ID (byte1 bit[3:1]).
-        tx[1] = (tx[1] & !0x0E) | (self.msg_id & 0x0E);
-
-        for _ in 0..3 {
-            // Send (blocks until TX_END).
-            self.send(&tx[..len], sop);
-
-            // Wait for GoodCRC, up to ~750 µs.
-            let mut acked = false;
-            for _ in 0..250 {
-                if self.is_rx_complete() {
-                    self.clear_all_flags();
-                    let good = self.received_len() == 6
-                        && rx.first().copied().unwrap_or(0) & 0x1F == ControlMessage::GoodCrc as u8;
-                    if good {
-                        acked = true;
-                        break;
-                    }
-                }
-                delay.delay_us(3);
-            }
-            if acked {
-                self.msg_id = (self.msg_id + 2) & 0x0E;
-                return Ok(());
-            }
-        }
-        Err(PdError::NoAck)
-    }
-
-    /// Send an extended message, splitting `data` into chunks.
-    ///
-    /// `header` carries the extended message type plus your power/data role
-    /// and spec revision (the extended bit and NDO are set automatically);
-    /// `data` is transmitted as [`MAX_CHUNK_DATA`]-byte chunks on `sop`
-    /// (typically [`SopType::Sop1`], SOP'), each carrying the extended
-    /// header with the total `data_size`, an incrementing chunk number and
-    /// the chunked flag cleared on the last chunk. Every chunk waits for its
-    /// GoodCRC via [`send_message`](Self::send_message).
-    ///
-    /// # Errors
-    ///
-    /// [`PdError::TooLong`] if `data.len() > MAX_EXTENDED_DATA`; any
-    /// [`PdError`] from [`send_message`](Self::send_message) on failure.
-    pub fn send_extended_message(
-        &mut self,
-        tx: &mut [u8],
-        header: Header,
-        data: &[u8],
-        sop: SopType,
-        rx: &[u8],
-        delay: &impl DelayUs,
-    ) -> Result<(), PdError> {
-        let total = data.len();
-        if total > MAX_EXTENDED_DATA {
-            return Err(PdError::TooLong);
-        }
-        let mut offset = 0usize;
-        let mut chunk = 0u8;
-        while offset < total {
-            let n = core::cmp::min(MAX_CHUNK_DATA, total - offset);
-            let more = offset + n < total;
-            let ext_header = ExtendedHeader::new(total as u16)
-                .with_chunk_number(chunk)
-                .with_chunked(more);
-            let len = build_extended_chunk(tx, header, ext_header, &data[offset..offset + n])?;
-            self.send_message(tx, len, sop, rx, delay)?;
-            offset += n;
-            chunk += 1;
-        }
-        Ok(())
-    }
-
-    /// Answer a received message with a GoodCRC acknowledgement.
-    ///
-    /// `rx_header` is the raw 16-bit header of the received message
-    /// (`rx[0] | (rx[1] as u16) << 8`). The reply echoes its Message ID and
-    /// sets the message type to GoodCRC; the other fields come from `own`
-    /// (typically your power/data role and spec revision). The 2-byte
-    /// header is written into `tx` and transmitted (no GoodCRC is expected
-    /// in return).
-    pub fn send_goodcrc(
-        &mut self,
-        tx: &mut [u8],
-        rx_header: u16,
-        own: Header,
-        sop: SopType,
-    ) -> Result<(), PdError> {
-        let header = own
-            .with_message_type(ControlMessage::GoodCrc as u8)
-            .with_message_id(((rx_header >> 9) & 0x7) as u8)
-            .with_num_data_objects(0);
-        tx[0] = header.bits() as u8;
-        tx[1] = (header.bits() >> 8) as u8;
-        self.send(&tx[..2], sop);
-        Ok(())
-    }
-
-    /// Parse a received DMA buffer into a [`RxMessage`].
-    ///
-    /// Convenience wrapper around [`parse_message`].
-    pub fn rx_message<'a>(&self, rx: &'a [u8]) -> Option<RxMessage<'a>> {
-        parse_message(rx)
-    }
 }

@@ -25,7 +25,7 @@ fn defmt_timestamp() -> u64 {
 }
 
 use ch32x035::gpio::Pins;
-use ch32x035::usbpd::{Usbpd, make_fixed_pdo};
+use ch32x035::usbpd::{Pdo, Port, Usbpd};
 use ch32x035::{Clocks, CorePeripherals, Delay, PdSource, Rcc, SourceState, main, pac};
 
 /// PD DMA buffers (4-byte aligned via `#[repr(align(4))]`).
@@ -36,7 +36,7 @@ static mut RX: Align4 = Align4([0; 34]);
 static mut TX: Align4 = Align4([0; 34]);
 
 /// Source_Capabilities: 5 V/3 A and 9 V/2 A fixed supplies.
-static SRC_CAPS: [u32; 2] = [make_fixed_pdo(5000, 3000), make_fixed_pdo(9000, 2000)];
+static SRC_CAPS: [Pdo; 2] = [Pdo::fixed(5000, 3000), Pdo::fixed(9000, 2000)];
 
 #[main]
 fn main() -> ! {
@@ -63,17 +63,18 @@ fn main() -> ! {
     cc2.into_input();
 
     let usbpd = Usbpd::init(USBPD, &AFIO, &mut rcc);
-    let mut delay = Delay::init(cp.SYST, clocks.sysclk_hz());
+    let delay = Delay::init(cp.SYST, clocks.sysclk_hz());
 
     // SAFETY: RX/TX are `static` and stay alive for the whole program.
-    let mut source = unsafe {
+    let port = unsafe {
         let rx: &'static mut [u8] = &mut (*core::ptr::addr_of_mut!(RX)).0;
         let tx: &'static mut [u8] = &mut (*core::ptr::addr_of_mut!(TX)).0;
-        PdSource::new(usbpd, rx, tx, &SRC_CAPS)
+        Port::new(usbpd, rx, tx)
     };
+    let mut source = PdSource::new(port, &SRC_CAPS);
 
     loop {
-        source.poll(&mut delay);
+        source.poll(&delay);
 
         match source.state() {
             SourceState::Ready => {
@@ -81,7 +82,7 @@ fn main() -> ! {
                     "Supplying {} mV / {} mA (port CC{})",
                     source.requested_mv(),
                     source.requested_ma(),
-                    source.port() as u8 + 1
+                    source.cc_port() as u8 + 1
                 );
             }
             SourceState::Error => {
