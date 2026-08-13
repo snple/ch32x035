@@ -207,15 +207,21 @@ pub static __EXCEPTIONS: [Vector; 15] = [
     // 4: Reserved
     Vector { reserved: 0 },
     // 5: Ecall M-mode
-    Vector { handler: EcallMMode },
+    Vector {
+        handler: EcallMMode,
+    },
     // 6: Reserved
     Vector { reserved: 0 },
     // 7: Reserved
     Vector { reserved: 0 },
     // 8: Ecall U-mode
-    Vector { handler: EcallUMode },
+    Vector {
+        handler: EcallUMode,
+    },
     // 9: Break Point
-    Vector { handler: BreakPoint },
+    Vector {
+        handler: BreakPoint,
+    },
     // 10: Reserved
     Vector { reserved: 0 },
     // 11: Reserved

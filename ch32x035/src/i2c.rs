@@ -144,30 +144,87 @@ impl I2c1 {
     }
 
     /// Read `buf.len()` bytes from the slave at 7-bit `addr`.
+    ///
+    /// Uses the standard STM32-style sequence: every byte is acknowledged
+    /// except the last, which is NACKed so the slave releases the bus.
     pub fn read(&mut self, addr: u8, buf: &mut [u8]) {
-        let len = buf.len();
+        if buf.is_empty() {
+            return;
+        }
         self.start();
         self.send_addr(addr, true);
-
-        for (i, slot) in buf.iter_mut().enumerate() {
-            // For the last byte, send STOP after the byte is received.
-            if i + 1 == len {
-                while !self.i2c.star1.rx_ne() {}
-                // Wait for BTF (data available, stop can be sent)
-                while !self.i2c.star1.btf() {}
-                self.stop();
-                *slot = self.i2c.datar.datar() as u8;
-            } else {
-                while !self.i2c.star1.rx_ne() {}
-                *slot = self.i2c.datar.datar() as u8;
-            }
-        }
+        self.read_after_addr(buf);
     }
 
-    /// Write `write` then (re)start and read into `read`.
+    /// Write `write` then, without releasing the bus, (re)start and read into
+    /// `read` (a proper repeated-START transaction).
     pub fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) {
-        self.write(addr, write);
-        self.read(addr, read);
+        if write.is_empty() {
+            self.read(addr, read);
+            return;
+        }
+
+        // Write phase: START + address + data, keeping the bus held.
+        self.start();
+        self.send_addr(addr, false);
+        for &b in write {
+            while !self.i2c.star1.tx_e() {}
+            self.i2c.datar.write_datar(b as u32);
+        }
+        while !self.i2c.star1.btf() {}
+
+        if read.is_empty() {
+            self.stop();
+            return;
+        }
+
+        // Repeated START + read phase.
+        self.start();
+        self.send_addr(addr, true);
+        self.read_after_addr(read);
+    }
+
+    /// ACK-managed receive loop; expects START + address already sent and
+    /// `ADDR` cleared by the caller.
+    fn read_after_addr(&mut self, buf: &mut [u8]) {
+        let len = buf.len();
+        match len {
+            1 => {
+                // Single byte: NACK it so the slave ends the transaction.
+                self.i2c.ctlr1.clr_pos();
+                self.i2c.ctlr1.clr_ack();
+                while !self.i2c.star1.rx_ne() {}
+                self.stop();
+                buf[0] = self.i2c.datar.datar() as u8;
+            }
+            2 => {
+                // Two bytes: POS=1 + ACK=1 NACKs the second byte
+                // automatically; wait BTF, STOP, then read both.
+                self.i2c.ctlr1.set_pos();
+                self.i2c.ctlr1.set_ack();
+                while !self.i2c.star1.btf() {}
+                self.stop();
+                buf[0] = self.i2c.datar.datar() as u8;
+                buf[1] = self.i2c.datar.datar() as u8;
+            }
+            _ => {
+                // Three or more: ACK every byte but the last.
+                self.i2c.ctlr1.clr_pos();
+                self.i2c.ctlr1.set_ack();
+                for slot in buf[..len - 2].iter_mut() {
+                    while !self.i2c.star1.rx_ne() {}
+                    *slot = self.i2c.datar.datar() as u8;
+                }
+                // Last-but-one byte: wait BTF, NACK, read it.
+                while !self.i2c.star1.btf() {}
+                self.i2c.ctlr1.clr_ack();
+                buf[len - 2] = self.i2c.datar.datar() as u8;
+                // Last byte: RXNE, STOP, read.
+                while !self.i2c.star1.rx_ne() {}
+                self.stop();
+                buf[len - 1] = self.i2c.datar.datar() as u8;
+            }
+        }
     }
 
     /// Consume the driver and return the underlying peripheral.
@@ -386,17 +443,9 @@ impl I2c1SlaveIrq {
                 return;
             }
 
-            // Stop detected after an ACK: the master finished writing.
-            if i2c.star1.stopf() {
-                st.receiving = false;
-                st.write_ready = true;
-                // STOPF is cleared by reading STAR1 then writing CTLR1.
-                let _ = i2c.star1.read_bits();
-                i2c.ctlr1.write_val(i2c.ctlr1.read_val());
-                return;
-            }
-
-            // Data available (ITBUFEN): receive one byte.
+            // Data available (ITBUFEN): receive one byte. Handled before
+            // STOPF so the final byte that arrives together with the STOP
+            // condition is not lost.
             if st.receiving && i2c.star1.rx_ne() {
                 let b = i2c.datar.datar() as u8;
                 // Take the buffer out briefly so no long-lived borrow of
@@ -409,6 +458,16 @@ impl I2c1SlaveIrq {
                     // Buffer full: discard the rest to keep SCL flowing.
                     st.rx_buf = Some(buf);
                 }
+                return;
+            }
+
+            // Stop detected after an ACK: the master finished writing.
+            if i2c.star1.stopf() {
+                st.receiving = false;
+                st.write_ready = true;
+                // STOPF is cleared by reading STAR1 then writing CTLR1.
+                let _ = i2c.star1.read_bits();
+                i2c.ctlr1.write_val(i2c.ctlr1.read_val());
                 return;
             }
 
