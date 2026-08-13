@@ -42,8 +42,8 @@ use crate::delay::DelayUs;
 use crate::usbpd::phy::{CcPort, CcPull, SopType};
 use crate::usbpd::port::Port;
 use crate::usbpd::protocol::{
-    ApdoType, ControlMessage, DataMessage, DataRole, Message, Pdo, PdoType, PowerRole, Rdo,
-    SpecRev,
+    ApdoType, ControlMessage, DataMessage, DataRole, Header, Message, Pdo, PdoType, PowerRole,
+    Rdo, SpecRev,
 };
 
 /// A sink-side power request, applied with [`PdSink::request`].
@@ -121,7 +121,13 @@ pub struct PdSink {
 
 impl PdSink {
     /// Create a sink engine over the given [`Port`].
-    pub fn new(link: Port) -> Self {
+    pub fn new(mut link: Port) -> Self {
+        link.set_ack_header(
+            Header::new()
+                .with_port_power_role(PowerRole::Sink)
+                .with_port_data_role(DataRole::Ufp)
+                .with_spec_revision(SpecRev::Rev3_0),
+        );
         Self {
             link,
             state: SinkState::Idle,
@@ -252,6 +258,7 @@ impl PdSink {
                     }
                     t if t == ControlMessage::SoftReset as u8 => {
                         self.send_control(ControlMessage::Accept, delay);
+                        self.link.reset_msg_id();
                     }
                     t if t == ControlMessage::GetSinkCap as u8 => {
                         self.send_sink_caps(delay);
@@ -461,10 +468,16 @@ impl PdSource {
     /// Create a source engine over the given [`Port`].
     ///
     /// `src_caps` is the Source_Capabilities PDO table (up to 7 entries).
-    pub fn new(link: Port, src_caps: &'static [Pdo]) -> Self {
+    pub fn new(mut link: Port, src_caps: &'static [Pdo]) -> Self {
         debug_assert!(
             src_caps.len() <= 7,
             "Source_Capabilities holds at most 7 PDOs"
+        );
+        link.set_ack_header(
+            Header::new()
+                .with_port_power_role(PowerRole::Source)
+                .with_port_data_role(DataRole::Dfp)
+                .with_spec_revision(SpecRev::Rev3_0),
         );
         Self {
             link,
@@ -597,6 +610,7 @@ impl PdSource {
                     }
                     t if t == ControlMessage::SoftReset as u8 => {
                         self.send_control(ControlMessage::Accept, delay);
+                        self.link.reset_msg_id();
                     }
                     _ => {}
                 },
@@ -637,6 +651,7 @@ impl PdSource {
                 }
                 t if t == ControlMessage::SoftReset as u8 => {
                     self.send_control(ControlMessage::Accept, delay);
+                    self.link.reset_msg_id();
                 }
                 _ => {}
             }

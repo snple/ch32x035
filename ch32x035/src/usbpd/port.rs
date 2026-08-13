@@ -27,6 +27,8 @@ pub struct Port {
     tx: &'static mut [u8],
     /// Outgoing Message ID, incremented by 2 after each acknowledged send.
     msg_id: u8,
+    /// Header template for automatic GoodCRC replies (our role + spec).
+    own: Header,
 }
 
 impl Port {
@@ -52,6 +54,7 @@ impl Port {
             rx,
             tx,
             msg_id: 0,
+            own: Header::new(),
         }
     }
 
@@ -75,6 +78,16 @@ impl Port {
         self.msg_id = 0;
     }
 
+    /// Set the header template used for automatic GoodCRC replies.
+    ///
+    /// `own` is your power/data role and spec revision (typically
+    /// [`Header::new`] with the role and spec builders). Every message
+    /// received by [`receive`](Self::receive) is acknowledged automatically,
+    /// unless it is itself a GoodCRC or an extended-message chunk.
+    pub fn set_ack_header(&mut self, own: Header) {
+        self.own = own;
+    }
+
     /// Arm the receive path so the next packet is captured into `rx`.
     ///
     /// Called automatically by [`receive`](Self::receive) and after every
@@ -89,13 +102,18 @@ impl Port {
     /// Block (up to `timeout_ms` milliseconds) for an incoming message.
     ///
     /// Returns the decoded message, or `None` on timeout. The receive path is
-    /// left re-armed for the next packet either way.
+    /// left re-armed for the next packet either way. Non-GoodCRC messages are
+    /// acknowledged automatically with the header set by
+    /// [`set_ack_header`](Self::set_ack_header).
     pub fn receive(&mut self, timeout_ms: u32, delay: &impl DelayUs) -> Option<RxMessage> {
         for _ in 0..timeout_ms {
             if self.phy.is_rx_complete() {
                 let len = self.phy.received_len() as usize;
                 self.phy.clear_all_flags();
                 let msg = RxMessage::decode(&self.rx[..len.min(self.rx.len())]);
+                if let Some(m) = &msg {
+                    self.ack(m.header().bits());
+                }
                 self.start();
                 return msg;
             }
@@ -108,7 +126,10 @@ impl Port {
     /// Block (up to `timeout_ms` milliseconds) for an extended-message chunk.
     ///
     /// Returns the decoded chunk, or `None` on timeout. The receive path is
-    /// left re-armed for the next packet either way.
+    /// left re-armed for the next packet either way. Unlike
+    /// [`receive`](Self::receive), the chunk is **not** acknowledged
+    /// automatically: acknowledge it yourself with
+    /// [`send_goodcrc`](Self::send_goodcrc) on the matching SOP type (SOP').
     pub fn receive_chunk(
         &mut self,
         timeout_ms: u32,
@@ -207,6 +228,20 @@ impl Port {
         self.tx[1] = (header.bits() >> 8) as u8;
         self.phy.send(&self.tx[..2], sop);
         Ok(())
+    }
+
+    /// Acknowledge a received message with a GoodCRC.
+    ///
+    /// GoodCRC messages (which are themselves acknowledgements) and
+    /// extended-message chunks (which must be acknowledged on SOP') are
+    /// skipped; extended-message users should call
+    /// [`send_goodcrc`](Self::send_goodcrc) themselves with the right SOP.
+    fn ack(&mut self, rx_header: u16) {
+        let header = Header::from_bits(rx_header);
+        if header.message_type() == ControlMessage::GoodCrc as u8 || header.extended() {
+            return;
+        }
+        let _ = self.send_goodcrc(rx_header, self.own, SopType::Sop0);
     }
 
     /// Send `len` already-encoded bytes with Message-ID injection and GoodCRC.
