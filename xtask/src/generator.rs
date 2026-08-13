@@ -5,7 +5,7 @@
 //! - RegisterBlock is a `#[repr(C)]` struct that directly maps to hardware memory
 //! - Each register has field accessor methods with proper documentation
 //!
-//! Adapted from the pico-rs project generator for the CH32X035 (RISC-V, WCH
+//! Adapted from the rp2350 project generator for the CH32X035 (RISC-V, WCH
 //! QingKe V4C). Unlike the RP2350, the CH32X035 has **no** atomic SET/CLR/XOR
 //! register aliases, so every register uses a plain `VolatileCell`.
 
@@ -27,7 +27,7 @@ use std::path::Path;
 /// Names already carry the `_IRQ` suffix and are in shouty-snake case: they are
 /// used verbatim as the linker handler symbols (`device.x` PROVIDEs), the PAC
 /// `Interrupt` enum variants, and the `#[bind(...)]` macro arguments. This
-/// mirrors the pico-rs convention (e.g. `TIMER0_IRQ_0`) and avoids colliding
+/// mirrors the rp2350 convention (e.g. `TIMER0_IRQ_0`) and avoids colliding
 /// with linker region names such as `FLASH`.
 ///
 /// External interrupts occupy vector slots 16..=54. Slots 0..=15 are the

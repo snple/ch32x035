@@ -2,7 +2,7 @@
 //!
 //! The `ch32x035-examples` crate is a `lib` so the example binaries can share
 //! common initialization helpers (e.g. a `Board::init()`), mirroring the
-//! pico-rs examples layout.
+//! rp2350 examples layout.
 
 #![no_std]
 

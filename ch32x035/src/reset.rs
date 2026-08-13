@@ -3,7 +3,7 @@
 //! Provides the [`Resettable`] trait, implemented for the PAC peripheral
 //! types. Calling `init()` on a peripheral resets it and enables its clock,
 //! which is the standard first step before configuring any peripheral
-//! (mirrors the pico-rs `Resettable` trait).
+//! (mirrors the rp2350 `Resettable` trait).
 //!
 //! # Example
 //!

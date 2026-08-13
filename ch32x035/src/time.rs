@@ -1,6 +1,6 @@
 //! Time types: [`Duration`] and [`Instant`]
 //!
-//! Pure software time types (no hardware dependency), modeled on the pico-rs
+//! Pure software time types (no hardware dependency), modeled on the rp2350
 //! `time` module.
 
 /// A span of time, measured in microseconds.

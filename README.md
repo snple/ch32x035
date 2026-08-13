@@ -1,7 +1,7 @@
 # ch32x035 — Rust HAL for the WCH CH32X035
 
 RISC-V (WCH QingKe V4C) HAL for the CH32X035 microcontroller, written in the
-style of the [pico-rs](https://github.com/rp-rs/pico-rs) project. The project
+style of the [rp2350](https://github.com/rp-rs/rp2350) project. The project
 is split into layered crates:
 
 ```
@@ -18,7 +18,7 @@ ch32x035-examples   →  ch32x035 (HAL)
 | `ch32x035-macro` | Procedural macros: `#[main]`, `#[exception]`, `#[bind(IRQ)]`, `#[ramfunc]`. |
 | `ch32x035` | Hardware Abstraction Layer: `gpio`, `rcc`, `reset`, `uart`, `spi`, `i2c`, `adc`, `dma`, `timer`, `exti`, `afio`, `awu`, `opa`, `esig`, `usbpd`, `pwr`, `watchdog`, `flash`, `delay`, `time`, `interrupt`. |
 | `ch32x035-examples` | `blink` and `hello_uart` examples. |
-| `xtask` | PAC code generator (adapted from pico-rs). |
+| `xtask` | PAC code generator (adapted from rp2350). |
 
 ## Target
 

@@ -3,7 +3,7 @@
 //! Hardware Abstraction Layer (HAL) for the CH32X035 microcontroller
 //! (WCH, RISC-V QingKe V4C core).
 //!
-//! This crate is organized in the style of the `pico-rs` project:
+//! This crate is organized in the style of the `rp2350` project:
 //!
 //! - [`pac`] - low-level register access (re-export of `ch32x035-pac`)
 //! - [`rt`] - runtime support (re-export of `ch32x035-rt`)
@@ -76,7 +76,7 @@ pub use usbpd::{
 ///
 /// This is the "escape hatch" used by `unsafe fn steal()` implementations: it
 /// prevents calling `&mut self` methods (which would require ownership) while
-/// still allowing read/shared access. Modeled on the pico-rs `Steal<T>`.
+/// still allowing read/shared access. Modeled on the rp2350 `Steal<T>`.
 #[derive(Debug)]
 pub struct Steal<T> {
     inner: T,

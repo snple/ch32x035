@@ -4,7 +4,7 @@
 //! CH32X035 the `ch32x035-rt` reset handler already performs all core
 //! initialization (stack, `.data`/`.bss`, vector table, interrupts, WCH core
 //! configuration), so this is intentionally a no-op that exists for symmetry
-//! with the pico-rs `#[main]` flow and as a place to hook early init.
+//! with the rp2350 `#[main]` flow and as a place to hook early init.
 
 /// Perform early system initialization.
 ///
