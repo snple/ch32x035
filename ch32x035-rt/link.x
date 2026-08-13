@@ -106,6 +106,7 @@ SECTIONS
     {
         __srodata = .;
         *(.rodata .rodata.*);
+        *(.srodata .srodata.*);
         . = ALIGN(4);
         __erodata = .;
     } > FLASH
@@ -151,6 +152,29 @@ SECTIONS
         . = ALIGN(4);
         __ebss = .;
     } > RAM
+
+    /* Small Data (gp-relative) - initialized, copied from FLASH at startup */
+    .sdata : ALIGN(4)
+    {
+        __ssdata = .;
+        *(.sdata .sdata.*);
+        . = ALIGN(4);
+        __esdata = .;
+    } > RAM AT>FLASH
+    __sisdata = LOADADDR(.sdata);
+
+    /* Small BSS (gp-relative) - zeroed at startup */
+    .sbss (NOLOAD) : ALIGN(4)
+    {
+        __ssbss = .;
+        *(.sbss .sbss.*);
+        *(.scommon);
+        . = ALIGN(4);
+        __esbss = .;
+    } > RAM
+
+    /* Global pointer base: gp-relative accesses reach ±2 KiB around here. */
+    PROVIDE(__global_pointer$ = __esbss + 0x800);
 
     /* Explicitly Uninitialized Data - NOT zeroed at startup */
     .uninit (NOLOAD) : ALIGN(4)

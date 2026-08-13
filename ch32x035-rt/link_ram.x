@@ -69,6 +69,7 @@ SECTIONS
     {
         __srodata = .;
         *(.rodata .rodata.*);
+        *(.srodata .srodata.*);
         . = ALIGN(4);
         __erodata = .;
     } > RAM
@@ -102,6 +103,28 @@ SECTIONS
         . = ALIGN(4);
         __ebss = .;
     } > RAM
+
+    /* Small Data (gp-relative) */
+    .sdata : ALIGN(4)
+    {
+        __ssdata = .;
+        *(.sdata .sdata.*);
+        . = ALIGN(4);
+        __esdata = .;
+    } > RAM AT>RAM
+    __sisdata = LOADADDR(.sdata);
+
+    /* Small BSS (gp-relative) */
+    .sbss (NOLOAD) : ALIGN(4)
+    {
+        __ssbss = .;
+        *(.sbss .sbss.*);
+        *(.scommon);
+        . = ALIGN(4);
+        __esbss = .;
+    } > RAM
+
+    PROVIDE(__global_pointer$ = __esbss + 0x800);
 
     /* Explicitly Uninitialized Data */
     .uninit (NOLOAD) : ALIGN(4)

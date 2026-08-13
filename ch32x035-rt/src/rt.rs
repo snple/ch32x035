@@ -17,12 +17,14 @@ use core::arch::global_asm;
 //
 // NOTE: the stack is set up in assembly here because the Rust `Reset` function
 // may use the stack in its prologue before we could set `sp` from Rust.
+//
 global_asm!(
     r#"
     .section .init,"ax",@progbits
     .align 1
     .global _start
     _start:
+        la gp, __global_pointer$
         la sp, _stack_start
         j Reset
     "#
@@ -43,6 +45,15 @@ unsafe extern "C" {
     // BSS section
     static mut __sbss: u32; // Start of .bss
     static mut __ebss: u32; // End of .bss
+
+    // Small data section (.sdata, gp-relative)
+    static __sisdata: u32; // LMA of .sdata
+    static mut __ssdata: u32; // Start of .sdata in RAM
+    static mut __esdata: u32; // End of .sdata in RAM
+
+    // Small BSS section (.sbss, gp-relative)
+    static mut __ssbss: u32; // Start of .sbss
+    static mut __esbss: u32; // End of .sbss
 
     // Stack
     static _stack_start: u32;
@@ -91,6 +102,30 @@ pub unsafe extern "C" fn Reset() -> ! {
     unsafe {
         let mut dst = &raw mut __sbss;
         let end = &raw mut __ebss;
+
+        while dst < end {
+            core::ptr::write_volatile(dst, 0);
+            dst = dst.offset(1);
+        }
+    }
+
+    // Copy .sdata section (gp-relative initialized data)
+    unsafe {
+        let mut src = &raw const __sisdata;
+        let mut dst = &raw mut __ssdata;
+        let end = &raw mut __esdata;
+
+        while dst < end {
+            core::ptr::write_volatile(dst, core::ptr::read_volatile(src));
+            src = src.offset(1);
+            dst = dst.offset(1);
+        }
+    }
+
+    // Zero .sbss section (gp-relative zero-initialized data)
+    unsafe {
+        let mut dst = &raw mut __ssbss;
+        let end = &raw mut __esbss;
 
         while dst < end {
             core::ptr::write_volatile(dst, 0);
