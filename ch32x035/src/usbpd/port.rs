@@ -213,7 +213,8 @@ impl Port {
     /// `rx_header` is the raw 16-bit header of the received message. The reply
     /// echoes its Message ID and sets the message type to GoodCRC; the other
     /// fields come from `own` (typically your power/data role and spec
-    /// revision). No GoodCRC is expected in return.
+    /// revision). No GoodCRC is expected in return; the receive path is left
+    /// in TX mode, so call [`start`](Self::start) to resume receiving.
     pub fn send_goodcrc(
         &mut self,
         rx_header: u16,
@@ -254,6 +255,12 @@ impl Port {
         for _ in 0..3 {
             // Transmit (blocks until TX_END).
             self.phy.send(&self.tx[..len], sop);
+
+            // `send` leaves the transceiver in TX mode (DMA pointing at the TX
+            // buffer); re-arm the receive path so the peer's GoodCRC can be
+            // captured (the WCH SDK switches back to RX right after a blocking
+            // send).
+            self.start();
 
             // Wait for GoodCRC, up to ~750 µs.
             let mut acked = false;

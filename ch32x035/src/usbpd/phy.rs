@@ -203,11 +203,7 @@ impl Usbpd {
     pub fn set_cc_pull(&mut self, port: CcPort, pull: CcPull) {
         self.cc_modify(port, |v| {
             let v = (v & !CC_PU_MASK) | (pull.bits() << CC_PU_SHIFT);
-            if pull.bits() == 0 {
-                v
-            } else {
-                v & !CC_PD
-            }
+            if pull.bits() == 0 { v } else { v & !CC_PD }
         });
     }
 
