@@ -1,8 +1,9 @@
 //! OPA (Operational Amplifier / Comparator)
 //!
-//! Drives the CH32X035's two operational amplifiers (OPA1/OPA2, `CTLR1`) and
-//! three comparators (CMP1-3, `CTLR2`). The control registers must be
-//! unlocked by writing the key sequence before configuration.
+//! Drives the CH32X035's two operational amplifiers (OPA1/OPA2, `CTLR1`),
+//! three comparators (CMP1-3, `CTLR2`) and the polling / timer-break (BKIN)
+//! / interrupt configuration (`CFGR1`/`CFGR2`). The control registers must
+//! be unlocked by writing the key sequence before configuration.
 //!
 //! # Example
 //!
@@ -24,6 +25,51 @@ const OPA_KEY1: u32 = 0x4567_0123;
 /// Unlock key 2
 const OPA_KEY2: u32 = 0xCDEF_89AB;
 
+// `CFGR1` (offset 0x00) and `CFGR2` (offset 0x02) are a pair of adjacent
+// 16-bit registers. The PAC models them as 32-bit registers, which would
+// place `cfgr2` at the wrong address, so this driver accesses them directly
+// with 16-bit volatile reads/writes (see `cfg1`/`set_cfg1`/`set_cfg2`).
+/// `CFGR1` bit: OPA1 positive-input polling enable
+const CFG_POLL_EN1: u16 = 1 << 0;
+/// `CFGR1` bit: OPA2 positive-input polling enable
+const CFG_POLL_EN2: u16 = 1 << 1;
+/// `CFGR1` bit: OPA1 timer-break (BKIN) enable
+const CFG_BKIN_EN1: u16 = 1 << 2;
+/// `CFGR1` bit: OPA2 timer-break (BKIN) enable
+const CFG_BKIN_EN2: u16 = 1 << 3;
+/// `CFGR1` bit: OPA1 system-reset enable
+const CFG_RST_EN1: u16 = 1 << 4;
+/// `CFGR1` bit: OPA2 system-reset enable
+const CFG_RST_EN2: u16 = 1 << 5;
+/// `CFGR1` bit: break input timer selection (swap OPA1/OPA2)
+const CFG_BKIN_SEL: u16 = 1 << 6;
+/// `CFGR1` bit: OPA1 output interrupt enable
+const CFG_IE_OUT1: u16 = 1 << 8;
+/// `CFGR1` bit: OPA2 output interrupt enable
+const CFG_IE_OUT2: u16 = 1 << 9;
+/// `CFGR1` bit: polling-interval-end interrupt enable
+const CFG_IE_CNT: u16 = 1 << 10;
+/// `CFGR1` bit: OPA NMI enable
+const CFG_NMI_EN: u16 = 1 << 11;
+/// `CFGR1` flag: OPA1 output was high while polling
+const CFG_IF_OUT1: u16 = 1 << 12;
+/// `CFGR1` flag: OPA2 output was high while polling
+const CFG_IF_OUT2: u16 = 1 << 13;
+/// `CFGR1` flag: polling interval end
+const CFG_IF_CNT: u16 = 1 << 14;
+
+/// Number of positive inputs an OPA polls (`POLLx_NUM`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum PollCount {
+    /// One input (P0)
+    One = 0b00,
+    /// Two inputs (P0 + P1)
+    Two = 0b01,
+    /// Three inputs (P0 + P1 + P2)
+    Three = 0b10,
+}
+
 /// Configuration for an operational amplifier (OPA1/OPA2).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct OpampConfig {
@@ -38,9 +84,18 @@ pub struct OpampConfig {
 }
 
 /// Configuration for a comparator (CMP1-3).
+///
+/// Every field is a single select bit:
+/// - `psel` — positive input. CMP1: 0=PC19 / 1=PA0, CMP2: 0=PA12 / 1=PA11,
+///   CMP3: 0=PA13 / 1=PA14.
+/// - `nsel` — negative input. CMP1: 0=PC3 / 1=PA23, CMP2: 0=PA22 / 1=PC3,
+///   CMP3: 0=PA2 / 1=PC3.
+/// - `mode` — output channel: `false` = internal timer channel
+///   (CMP1→TIM2_CH1, CMP2→TIM2_CH2, CMP3→TIM2_CH3), `true` = I/O pin
+///   (CMP1→PA1, CMP2→PB2, CMP3→PB3).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct ComparatorConfig {
-    /// Comparator mode
+    /// Output channel select
     pub mode: bool,
     /// Positive input select
     pub psel: bool,
@@ -53,26 +108,34 @@ pub struct ComparatorConfig {
 /// OPA / CMP driver
 pub struct Opa {
     opa: pac::OPA,
+    /// Shadow of the `CFGR2` polling fields (`POLL1_NUM`/`POLL2_NUM` are
+    /// write-only, so the driver keeps the last written value).
+    cfg2: u16,
 }
 
 impl Opa {
     /// Create a new OPA driver. OPA has no clock gate on the CH32X035.
     pub fn new(opa: pac::OPA) -> Self {
-        Self { opa }
+        Self { opa, cfg2: 0 }
     }
 
-    /// Unlock the OPA and CMP configuration registers (write key sequence).
+    /// Unlock the OPA, CMP and polling configuration registers (write key
+    /// sequence).
     pub fn unlock(&mut self) {
         self.opa.opa_key.write_opa_key(OPA_KEY1);
         self.opa.opa_key.write_opa_key(OPA_KEY2);
         self.opa.cmp_key.write_cmp_key(OPA_KEY1);
         self.opa.cmp_key.write_cmp_key(OPA_KEY2);
+        self.opa.poll_key.write_poll_key(OPA_KEY1);
+        self.opa.poll_key.write_poll_key(OPA_KEY2);
     }
 
-    /// Lock the OPA configuration registers.
+    /// Lock the OPA and CMP configuration registers.
     pub fn lock(&mut self) {
         self.opa.ctlr1.set_opa_lock();
         self.opa.ctlr2.set_cmp_lock();
+        // CFGR1 bit 7 (POLL_LOCK) is write-1-to-lock.
+        self.set_cfg1(self.cfg1() | (1 << 7));
     }
 
     // =====================================================================
@@ -145,9 +208,15 @@ impl Opa {
     // Comparators (CTLR2)
     // =====================================================================
 
-    /// Configure comparator 1.
+    /// Configure comparator 1 (CMP1).
+    ///
+    /// See [`ComparatorConfig`] for the pin mapping of each field.
     pub fn configure_comparator1(&mut self, cfg: &ComparatorConfig) {
-        self.apply_cmp(1, cfg);
+        let reg = &self.opa.ctlr2;
+        if cfg.mode { reg.set_mode1(); } else { reg.clr_mode1(); }
+        if cfg.psel { reg.set_psel1(); } else { reg.clr_psel1(); }
+        if cfg.nsel { reg.set_nsel1(); } else { reg.clr_nsel1(); }
+        if cfg.hysteresis { reg.set_hyen1(); } else { reg.clr_hyen1(); }
     }
 
     /// Enable comparator 1.
@@ -160,9 +229,18 @@ impl Opa {
         self.opa.ctlr2.clr_en1();
     }
 
-    /// Configure comparator 2.
+    /// Check whether comparator 1 is enabled.
+    pub fn is_comparator1_enabled(&self) -> bool {
+        self.opa.ctlr2.en1()
+    }
+
+    /// Configure comparator 2 (CMP2).
     pub fn configure_comparator2(&mut self, cfg: &ComparatorConfig) {
-        self.apply_cmp(2, cfg);
+        let reg = &self.opa.ctlr2;
+        if cfg.mode { reg.set_mode2(); } else { reg.clr_mode2(); }
+        if cfg.psel { reg.set_psel2(); } else { reg.clr_psel2(); }
+        if cfg.nsel { reg.set_nsel2(); } else { reg.clr_nsel2(); }
+        if cfg.hysteresis { reg.set_hyen2(); } else { reg.clr_hyen2(); }
     }
 
     /// Enable comparator 2.
@@ -175,9 +253,18 @@ impl Opa {
         self.opa.ctlr2.clr_en2();
     }
 
-    /// Configure comparator 3.
+    /// Check whether comparator 2 is enabled.
+    pub fn is_comparator2_enabled(&self) -> bool {
+        self.opa.ctlr2.en2()
+    }
+
+    /// Configure comparator 3 (CMP3).
     pub fn configure_comparator3(&mut self, cfg: &ComparatorConfig) {
-        self.apply_cmp(3, cfg);
+        let reg = &self.opa.ctlr2;
+        if cfg.mode { reg.set_mode3(); } else { reg.clr_mode3(); }
+        if cfg.psel { reg.set_psel3(); } else { reg.clr_psel3(); }
+        if cfg.nsel { reg.set_nsel3(); } else { reg.clr_nsel3(); }
+        if cfg.hysteresis { reg.set_hyen3(); } else { reg.clr_hyen3(); }
     }
 
     /// Enable comparator 3.
@@ -190,62 +277,135 @@ impl Opa {
         self.opa.ctlr2.clr_en3();
     }
 
-    /// Apply the common single-bit comparator fields.
-    fn apply_cmp(&mut self, cmp: u8, cfg: &ComparatorConfig) {
-        let mode = cfg.mode;
-        let nsel = cfg.nsel;
-        let psel = cfg.psel;
-        let hy = cfg.hysteresis;
-        match cmp {
-            1 => {
-                self.cmp_bit("mode1", mode);
-                self.cmp_bit("nsel1", nsel);
-                self.cmp_bit("psel1", psel);
-                self.cmp_bit("hyen1", hy);
-            }
-            2 => {
-                self.cmp_bit("mode2", mode);
-                self.cmp_bit("nsel2", nsel);
-                self.cmp_bit("psel2", psel);
-                self.cmp_bit("hyen2", hy);
-            }
-            _ => {
-                self.cmp_bit("mode3", mode);
-                self.cmp_bit("nsel3", nsel);
-                self.cmp_bit("psel3", psel);
-                self.cmp_bit("hyen3", hy);
-            }
-        }
+    /// Check whether comparator 3 is enabled.
+    pub fn is_comparator3_enabled(&self) -> bool {
+        self.opa.ctlr2.en3()
     }
 
-    /// Set or clear a single-bit comparator field by name.
-    fn cmp_bit(&mut self, name: &str, value: bool) {
-        let reg = &self.opa.ctlr2;
-        if value {
-            match name {
-                "mode1" => reg.set_mode1(),
-                "nsel1" => reg.set_nsel1(),
-                "psel1" => reg.set_psel1(),
-                "hyen1" => reg.set_hyen1(),
-                "mode2" => reg.set_mode2(),
-                "nsel2" => reg.set_nsel2(),
-                "psel2" => reg.set_psel2(),
-                "hyen2" => reg.set_hyen2(),
-                _ => reg.set_hyen3(),
-            }
-        } else {
-            match name {
-                "mode1" => reg.clr_mode1(),
-                "nsel1" => reg.clr_nsel1(),
-                "psel1" => reg.clr_psel1(),
-                "hyen1" => reg.clr_hyen1(),
-                "mode2" => reg.clr_mode2(),
-                "nsel2" => reg.clr_nsel2(),
-                "psel2" => reg.clr_psel2(),
-                "hyen2" => reg.clr_hyen2(),
-                _ => reg.clr_hyen3(),
-            }
-        }
+    // =====================================================================
+    // Polling / break / interrupt configuration (CFGR1 / CFGR2)
+    // =====================================================================
+
+    /// Read the 16-bit `CFGR1` register (offset 0x00).
+    fn cfg1(&self) -> u16 {
+        // SAFETY: `CFGR1` is a 16-bit register at the OPA base address.
+        unsafe { core::ptr::read_volatile(pac::opa::BASE as *const u16) }
+    }
+
+    /// Write the 16-bit `CFGR1` register (offset 0x00).
+    fn set_cfg1(&mut self, value: u16) {
+        // SAFETY: `CFGR1` is a 16-bit register at the OPA base address.
+        unsafe { core::ptr::write_volatile(pac::opa::BASE as *mut u16, value) }
+    }
+
+    /// Write the 16-bit `CFGR2` register (offset 0x02).
+    fn set_cfg2(&mut self, value: u16) {
+        // SAFETY: `CFGR2` is a 16-bit register at the OPA base address + 2.
+        unsafe { core::ptr::write_volatile((pac::opa::BASE + 2) as *mut u16, value) }
+    }
+
+    /// Set or clear a single `CFGR1` bit.
+    fn cfg1_bit(&mut self, mask: u16, value: bool) {
+        let v = self.cfg1();
+        self.set_cfg1(if value { v | mask } else { v & !mask });
+    }
+
+    /// Enable/disable OPA1 positive-input polling.
+    pub fn set_poll_opamp1(&mut self, enabled: bool) {
+        self.cfg1_bit(CFG_POLL_EN1, enabled);
+    }
+
+    /// Enable/disable OPA2 positive-input polling.
+    pub fn set_poll_opamp2(&mut self, enabled: bool) {
+        self.cfg1_bit(CFG_POLL_EN2, enabled);
+    }
+
+    /// Set how many positive inputs OPA1 polls (P0, P0+P1 or P0+P1+P2).
+    pub fn set_poll_count_opamp1(&mut self, count: PollCount) {
+        self.cfg2 = (self.cfg2 & !(0b11 << 9)) | ((count as u16) << 9);
+        self.set_cfg2(self.cfg2);
+    }
+
+    /// Set how many positive inputs OPA2 polls (P0, P0+P1 or P0+P1+P2).
+    pub fn set_poll_count_opamp2(&mut self, count: PollCount) {
+        self.cfg2 = (self.cfg2 & !(0b11 << 11)) | ((count as u16) << 11);
+        self.set_cfg2(self.cfg2);
+    }
+
+    /// Set the polling interval. `us` must be 1..=512; values are clamped.
+    /// The interval is `us` µs.
+    pub fn set_poll_interval_us(&mut self, us: u16) {
+        let vlu = us.saturating_sub(1).min(0x1FF);
+        self.cfg2 = (self.cfg2 & !0x1FF) | vlu;
+        self.set_cfg2(self.cfg2);
+    }
+
+    /// Enable/disable OPA1 as the timer break (BKIN) source.
+    pub fn set_break_opamp1(&mut self, enabled: bool) {
+        self.cfg1_bit(CFG_BKIN_EN1, enabled);
+    }
+
+    /// Enable/disable OPA2 as the timer break (BKIN) source.
+    pub fn set_break_opamp2(&mut self, enabled: bool) {
+        self.cfg1_bit(CFG_BKIN_EN2, enabled);
+    }
+
+    /// Swap which OPA output drives the TIM1 vs TIM2 break input.
+    ///
+    /// The break signal is active-high: set the timer's `BKP` bit too.
+    pub fn set_break_swapped(&mut self, swapped: bool) {
+        self.cfg1_bit(CFG_BKIN_SEL, swapped);
+    }
+
+    /// Enable/disable OPA1 resetting the system.
+    pub fn set_reset_opamp1(&mut self, enabled: bool) {
+        self.cfg1_bit(CFG_RST_EN1, enabled);
+    }
+
+    /// Enable/disable OPA2 resetting the system.
+    pub fn set_reset_opamp2(&mut self, enabled: bool) {
+        self.cfg1_bit(CFG_RST_EN2, enabled);
+    }
+
+    /// Enable/disable the OPA1 output interrupt.
+    pub fn set_interrupt_opamp1(&mut self, enabled: bool) {
+        self.cfg1_bit(CFG_IE_OUT1, enabled);
+    }
+
+    /// Enable/disable the OPA2 output interrupt.
+    pub fn set_interrupt_opamp2(&mut self, enabled: bool) {
+        self.cfg1_bit(CFG_IE_OUT2, enabled);
+    }
+
+    /// Enable/disable the polling-interval-end interrupt.
+    pub fn set_poll_end_interrupt(&mut self, enabled: bool) {
+        self.cfg1_bit(CFG_IE_CNT, enabled);
+    }
+
+    /// Enable/disable the OPA NMI.
+    pub fn set_nmi_enabled(&mut self, enabled: bool) {
+        self.cfg1_bit(CFG_NMI_EN, enabled);
+    }
+
+    /// Polling interval end flag.
+    pub fn poll_end_flag(&self) -> bool {
+        self.cfg1() & CFG_IF_CNT != 0
+    }
+
+    /// OPA1 output-high flag (set while polling).
+    pub fn opamp1_output_flag(&self) -> bool {
+        self.cfg1() & CFG_IF_OUT1 != 0
+    }
+
+    /// OPA2 output-high flag (set while polling).
+    pub fn opamp2_output_flag(&self) -> bool {
+        self.cfg1() & CFG_IF_OUT2 != 0
+    }
+
+    /// Clear all three interrupt flags (write 0).
+    pub fn clear_interrupt_flags(&mut self) {
+        let v = self.cfg1() & !(CFG_IF_CNT | CFG_IF_OUT1 | CFG_IF_OUT2);
+        self.set_cfg1(v);
     }
 
     /// Consume the driver and return the underlying peripheral.
