@@ -112,7 +112,7 @@ impl Port {
                 self.phy.clear_all_flags();
                 let msg = RxMessage::decode(&self.rx[..len.min(self.rx.len())]);
                 if let Some(m) = &msg {
-                    self.ack(m.header().bits());
+                    self.ack(m.header().bits(), delay);
                 }
                 self.start();
                 return msg;
@@ -236,11 +236,13 @@ impl Port {
     /// extended-message chunks (which must be acknowledged on SOP') are
     /// skipped; extended-message users should call
     /// [`send_goodcrc`](Self::send_goodcrc) themselves with the right SOP.
-    fn ack(&mut self, rx_header: u16) {
+    fn ack(&mut self, rx_header: u16, delay: &impl DelayUs) {
         let header = Header::from_bits(rx_header);
         if header.message_type() == ControlMessage::GoodCrc as u8 || header.extended() {
             return;
         }
+        // Let the bus settle before answering (WCH SDK `PD_Process.c`).
+        delay.delay_us(30);
         let _ = self.send_goodcrc(rx_header, self.own, SopType::Sop0);
     }
 

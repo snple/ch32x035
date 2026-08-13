@@ -8,6 +8,7 @@
 //! Higher layers live in [`super::protocol`] (message build/parse) and
 //! [`super::policy`] (Source/Sink negotiation).
 
+use crate::delay::DelayUs;
 use crate::pac;
 use crate::rcc::{AhbPeriph, Apb2Periph, Rcc};
 
@@ -42,12 +43,12 @@ const STATUS_ALL_FLAGS: u32 = STATUS_IF_RX_BIT
 
 // PORT_CC register bits (both CC1 and CC2 share the same layout)
 const CC_PA_AI: u32 = 1 << 0; // comparator analogue input (read)
+const CC_PD: u32 = 1 << 1; // pull-down resistor enable (sink / UFP)
 const CC_PU_SHIFT: u32 = 2; // pull-up current, 2 bits
 const CC_PU_MASK: u32 = 0b11 << CC_PU_SHIFT;
 const CC_LV0: u32 = 1 << 4; // output low-voltage enable
-const CC_CE: u32 = 1 << 5; // comparator enable
-// Comparator threshold field (bits 5..7; not documented in the SVD but
-// present in hardware, per the WCH SDK).
+// Comparator threshold field (bits [7:5]; not in the SVD but present in
+// hardware, per the WCH SDK `ch32x035_usbpd.h`: CC_NO_CMP .. CC_CMP_123).
 const CC_CMP_SHIFT: u32 = 5;
 const CC_CMP_MASK: u32 = 0b111 << CC_CMP_SHIFT;
 
@@ -196,8 +197,31 @@ impl Usbpd {
     }
 
     /// Set the CC pull-up current (source) or disable it (sink).
+    ///
+    /// Enabling a pull-up disables the pull-down resistor, and vice versa —
+    /// the two are mutually exclusive (source vs. sink).
     pub fn set_cc_pull(&mut self, port: CcPort, pull: CcPull) {
-        self.cc_modify(port, |v| (v & !CC_PU_MASK) | (pull.bits() << CC_PU_SHIFT));
+        self.cc_modify(port, |v| {
+            let v = (v & !CC_PU_MASK) | (pull.bits() << CC_PU_SHIFT);
+            if pull.bits() == 0 {
+                v
+            } else {
+                v & !CC_PD
+            }
+        });
+    }
+
+    /// Enable or disable the CC pull-down resistor (sink / UFP).
+    ///
+    /// Enabling the pull-down disables the pull-up current, and vice versa.
+    pub fn set_cc_pull_down(&mut self, port: CcPort, enabled: bool) {
+        self.cc_modify(port, |v| {
+            if enabled {
+                (v & !CC_PU_MASK) | CC_PD
+            } else {
+                v & !CC_PD
+            }
+        });
     }
 
     /// Set the CC comparator threshold.
@@ -207,11 +231,6 @@ impl Usbpd {
         });
     }
 
-    /// Enable the CC comparator.
-    pub fn enable_cc_comparator(&mut self, port: CcPort) {
-        self.cc_modify(port, |v| v | CC_CE);
-    }
-
     /// Enable the CC output low-voltage (used before BMC transmission).
     pub fn enable_cc_low_voltage(&mut self, port: CcPort) {
         self.cc_modify(port, |v| v | CC_LV0);
@@ -219,11 +238,14 @@ impl Usbpd {
 
     /// Check whether a cable is connected on `port`.
     ///
-    /// Enables the 0.22 V comparator and reads the analogue input pin.
-    pub fn check_cc(&mut self, port: CcPort) -> bool {
+    /// Selects the 0.22 V comparator threshold, waits for it to settle and
+    /// reads the analogue input pin.
+    pub fn check_cc(&mut self, port: CcPort, delay: &impl DelayUs) -> bool {
         self.cc_modify(port, |v| {
-            (v & !(CC_CE | CC_PA_AI)) | (CcComparator::Cmp0p22.bits() << CC_CMP_SHIFT)
+            (v & !(CC_CMP_MASK | CC_PA_AI)) | (CcComparator::Cmp0p22.bits() << CC_CMP_SHIFT)
         });
+        // Let the comparator settle (see the WCH SDK `PD_Detect`).
+        delay.delay_us(2);
         match port {
             CcPort::Cc1 => self.usbpd.port_cc1.read_bits() & CC_PA_AI != 0,
             CcPort::Cc2 => self.usbpd.port_cc2.read_bits() & CC_PA_AI != 0,
@@ -299,8 +321,9 @@ impl Usbpd {
 
         self.usbpd.config.modify_bits(|v| v | CONFIG_IE_TX_END);
 
-        // Drive the selected CC port low for transmission
-        if self.usbpd.config.read_bits() & CONFIG_CC_SEL != 0 {
+        // Drive the selected CC port low for transmission.
+        let cc2 = self.usbpd.config.read_bits() & CONFIG_CC_SEL != 0;
+        if cc2 {
             self.usbpd.port_cc2.modify_bits(|v| v | CC_LV0);
         } else {
             self.usbpd.port_cc1.modify_bits(|v| v | CC_LV0);
@@ -320,6 +343,13 @@ impl Usbpd {
             core::hint::spin_loop();
         }
         self.usbpd.status.write_bits(STATUS_IF_TX_END);
+
+        // Release the CC line so reception can resume (WCH SDK).
+        if cc2 {
+            self.usbpd.port_cc2.modify_bits(|v| v & !CC_LV0);
+        } else {
+            self.usbpd.port_cc1.modify_bits(|v| v & !CC_LV0);
+        }
     }
 
     /// Whether the last transmission has completed (IF_TX_END set).

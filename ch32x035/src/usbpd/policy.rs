@@ -42,8 +42,8 @@ use crate::delay::DelayUs;
 use crate::usbpd::phy::{CcPort, CcPull, SopType};
 use crate::usbpd::port::Port;
 use crate::usbpd::protocol::{
-    ApdoType, ControlMessage, DataMessage, DataRole, Header, Message, Pdo, PdoType, PowerRole,
-    Rdo, SpecRev,
+    ApdoType, ControlMessage, DataMessage, DataRole, Header, Message, Pdo, PdoType, PowerRole, Rdo,
+    SpecRev,
 };
 
 /// A sink-side power request, applied with [`PdSink::request`].
@@ -181,7 +181,7 @@ impl PdSink {
     /// `delay` is used for all timeouts and debounce waits.
     pub fn poll(&mut self, delay: &impl DelayUs) {
         match self.state {
-            SinkState::Idle => self.detect(),
+            SinkState::Idle => self.detect(delay),
             SinkState::AwaitSrcCap => self.await_src_cap(delay),
             SinkState::AwaitAccept => self.await_accept(delay),
             SinkState::AwaitPsRdy => self.await_ps_rdy(delay),
@@ -229,9 +229,12 @@ impl PdSink {
     }
 
     /// Detect the CC connection and select the active port.
-    fn detect(&mut self) {
+    ///
+    /// As a sink (UFP) the port presents a pull-down resistor (`Rd`).
+    fn detect(&mut self, delay: &impl DelayUs) {
         for p in [CcPort::Cc1, CcPort::Cc2] {
-            if self.link.phy().check_cc(p) {
+            self.link.phy().set_cc_pull_down(p, true);
+            if self.link.phy().check_cc(p, delay) {
                 self.cc_port = p;
                 self.link.phy().select_cc(p);
                 self.link.start();
@@ -332,7 +335,11 @@ impl PdSink {
             } => {
                 let mut best: Option<(usize, Pdo)> = None;
                 let mut best_delta = u16::MAX;
-                for (i, p) in self.pdo[..self.pdo_count as usize].iter().copied().enumerate() {
+                for (i, p) in self.pdo[..self.pdo_count as usize]
+                    .iter()
+                    .copied()
+                    .enumerate()
+                {
                     if p.pdo_type() != PdoType::FixedSupply {
                         continue;
                     }
@@ -344,21 +351,32 @@ impl PdSink {
                 }
                 let (i, p) = best?;
                 let position = i as u8 + 1;
-                let ma = current_ma.unwrap_or(p.max_current_ma()).min(p.max_current_ma());
+                let ma = current_ma
+                    .unwrap_or(p.max_current_ma())
+                    .min(p.max_current_ma());
                 Some((position, Rdo::fixed(position, ma, ma), p.voltage_mv(), ma))
             }
             Request::Pps {
                 voltage_mv,
                 current_ma,
             } => {
-                for (i, p) in self.pdo[..self.pdo_count as usize].iter().copied().enumerate() {
+                for (i, p) in self.pdo[..self.pdo_count as usize]
+                    .iter()
+                    .copied()
+                    .enumerate()
+                {
                     if p.pdo_type() != PdoType::Apdo || p.apdo_type() != ApdoType::Pps {
                         continue;
                     }
                     if (p.min_voltage_mv()..=p.max_voltage_mv()).contains(&voltage_mv) {
                         let ma = current_ma.min(p.max_current_ma());
                         let position = i as u8 + 1;
-                        return Some((position, Rdo::pps(position, voltage_mv, ma), voltage_mv, ma));
+                        return Some((
+                            position,
+                            Rdo::pps(position, voltage_mv, ma),
+                            voltage_mv,
+                            ma,
+                        ));
                     }
                 }
                 None
@@ -367,7 +385,11 @@ impl PdSink {
                 voltage_mv,
                 current_ma,
             } => {
-                for (i, p) in self.pdo[..self.pdo_count as usize].iter().copied().enumerate() {
+                for (i, p) in self.pdo[..self.pdo_count as usize]
+                    .iter()
+                    .copied()
+                    .enumerate()
+                {
                     if p.pdo_type() != PdoType::Apdo {
                         continue;
                     }
@@ -390,7 +412,12 @@ impl PdSink {
                             current_ma.min(max_ma)
                         };
                         let position = i as u8 + 1;
-                        return Some((position, Rdo::avs(position, voltage_mv, ma), voltage_mv, ma));
+                        return Some((
+                            position,
+                            Rdo::avs(position, voltage_mv, ma),
+                            voltage_mv,
+                            ma,
+                        ));
                     }
                 }
                 None
@@ -548,7 +575,7 @@ impl PdSource {
     /// `Soft_Reset` while keeping power applied.
     pub fn poll(&mut self, delay: &impl DelayUs) {
         match self.state {
-            SourceState::Idle => self.detect(),
+            SourceState::Idle => self.detect(delay),
             SourceState::AwaitSink => {
                 delay.delay_ms(160);
                 self.state = SourceState::SendSrcCap;
@@ -568,12 +595,12 @@ impl PdSource {
     }
 
     /// Put a 330 µA pull-up on both CC lines and detect the sink.
-    fn detect(&mut self) {
+    fn detect(&mut self, delay: &impl DelayUs) {
         for p in [CcPort::Cc1, CcPort::Cc2] {
             let connected = {
                 let phy = self.link.phy();
                 phy.set_cc_pull(p, CcPull::Pull330uA);
-                phy.check_cc(p)
+                phy.check_cc(p, delay)
             };
             if connected {
                 self.cc_port = p;
