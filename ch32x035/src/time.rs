@@ -63,9 +63,7 @@ impl Duration {
     pub const fn saturating_add(self, rhs: Duration) -> Duration {
         match self.checked_add(rhs) {
             Some(d) => d,
-            None => Duration {
-                micros: u64::MAX,
-            },
+            None => Duration { micros: u64::MAX },
         }
     }
 

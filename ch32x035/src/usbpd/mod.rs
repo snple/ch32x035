@@ -25,7 +25,7 @@ pub use policy::{PdSink, PdSource, Request, SinkState, SourceState};
 pub use port::Port;
 pub use protocol::{
     ApdoType, ChunkedAssembler, ControlMessage, DataMessage, DataRole, EprModeAction,
-    ExtendedHeader, ExtendedMsgType, Header, Message, PdError, Pdo, PdoType, PowerRole, Rdo,
-    RxExtendedChunk, RxMessage, SpecRev, MAX_CHUNK_DATA, MAX_CHUNKS, MAX_DATA_OBJECTS,
-    MAX_EXTENDED_DATA, parse_extended_chunk,
+    ExtendedHeader, ExtendedMsgType, Header, MAX_CHUNK_DATA, MAX_CHUNKS, MAX_DATA_OBJECTS,
+    MAX_EXTENDED_DATA, Message, PdError, Pdo, PdoType, PowerRole, Rdo, RxExtendedChunk, RxMessage,
+    SpecRev, parse_extended_chunk,
 };

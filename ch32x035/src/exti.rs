@@ -14,6 +14,7 @@
 //! exti.enable_interrupt::<0>();
 //! ```
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::{Apb2Periph, Rcc};
 
@@ -28,6 +29,19 @@ impl Exti {
     pub fn init(exti: pac::EXTI, rcc: &mut Rcc) -> Self {
         rcc.apb2_enable(Apb2Periph::Afio);
         Self { exti }
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            exti: unsafe { pac::EXTI::steal() },
+        })
     }
 
     /// Enable the rising-edge trigger on `LINE`.

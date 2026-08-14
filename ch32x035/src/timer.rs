@@ -20,6 +20,7 @@
 //! tim.start();
 //! ```
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::{Clocks, Rcc};
 use crate::reset::Resettable;
@@ -43,6 +44,20 @@ macro_rules! impl_timer {
             pub fn init(tim: $periph, rcc: &mut Rcc, clocks: Clocks) -> Self {
                 tim.init(rcc);
                 Self { tim, clocks }
+            }
+
+            /// Obtain a handle without ownership checks.
+            ///
+            /// # Safety
+            ///
+            /// The caller must ensure the peripheral has been initialized and
+            /// that no data races occur.
+            #[inline]
+            pub unsafe fn steal() -> Steal<Self> {
+                Steal(Self {
+                    tim: unsafe { <$periph>::steal() },
+                    clocks: unsafe { Clocks::steal() },
+                })
             }
 
             /// Set the prescaler value (`PSC`).
@@ -129,6 +144,19 @@ macro_rules! impl_timer_pwm {
                 p.tim.atrlr.write_atrlr(arr as u32);
                 p.tim.cnt.write_cnt(0);
                 p
+            }
+
+            /// Obtain a handle without ownership checks.
+            ///
+            /// # Safety
+            ///
+            /// The caller must ensure the peripheral has been initialized and
+            /// that no data races occur.
+            #[inline]
+            pub unsafe fn steal() -> Steal<Self> {
+                Steal(Self {
+                    tim: unsafe { <$periph>::steal() },
+                })
             }
 
             /// Start the counter (must be called before PWM is output).

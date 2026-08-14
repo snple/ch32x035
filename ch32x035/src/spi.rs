@@ -13,6 +13,7 @@
 //! spi.write(0xAA);
 //! ```
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::{Clocks, Rcc};
 use crate::reset::Resettable;
@@ -104,6 +105,33 @@ impl Default for Config {
     }
 }
 
+/// SPI error types.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// Timed out waiting for the transfer to complete.
+    Timeout,
+}
+
+/// Abstract SPI bus trait for driver implementations.
+///
+/// This keeps drivers decoupled from the concrete [`Spi1`] type.
+pub trait SpiBus {
+    /// Error type returned by the bus.
+    type Error;
+
+    /// Write multiple bytes (8-bit mode), discarding received data.
+    fn write(&mut self, data: &[u8]) -> Result<(), Self::Error>;
+
+    /// Read multiple bytes by clocking out dummy bytes (8-bit mode).
+    fn read(&mut self, data: &mut [u8]) -> Result<(), Self::Error>;
+
+    /// Full-duplex transfer: write and read simultaneously (8-bit mode).
+    ///
+    /// The transfer length is `min(read.len(), write.len())`.
+    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error>;
+}
+
 /// SPI1 master driver
 pub struct Spi1 {
     spi: pac::SPI1,
@@ -151,12 +179,37 @@ impl Spi1 {
         s
     }
 
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            spi: unsafe { pac::SPI1::steal() },
+            clocks: unsafe { Clocks::steal() },
+        })
+    }
+
     /// Transfer a word (8- or 16-bit depending on the frame format).
     pub fn transfer(&mut self, data: u16) -> u16 {
-        while !self.spi.statr.txe() {}
+        self.try_transfer(data)
+            .unwrap_or_else(|_| panic!("SPI transfer timed out"))
+    }
+
+    /// Transfer a word, returning [`Error::Timeout`] if the transfer does not
+    /// complete.
+    pub fn try_transfer(&mut self, data: u16) -> Result<u16, Error> {
+        if !crate::spin::try_spin_wait(|| self.spi.statr.txe()) {
+            return Err(Error::Timeout);
+        }
         self.spi.datar.write_dr(data as u32);
-        while !self.spi.statr.rxne() {}
-        self.spi.datar.dr() as u16
+        if !crate::spin::try_spin_wait(|| self.spi.statr.rxne()) {
+            return Err(Error::Timeout);
+        }
+        Ok(self.spi.datar.dr() as u16)
     }
 
     /// Write a byte and discard the received byte.
@@ -186,5 +239,31 @@ impl Spi1 {
     /// Consume the driver and return the underlying peripheral.
     pub fn release(self) -> pac::SPI1 {
         self.spi
+    }
+}
+
+impl SpiBus for Spi1 {
+    type Error = Error;
+
+    fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+        for &b in data {
+            self.try_transfer(b as u16)?;
+        }
+        Ok(())
+    }
+
+    fn read(&mut self, data: &mut [u8]) -> Result<(), Error> {
+        for slot in data.iter_mut() {
+            *slot = self.try_transfer(0)? as u8;
+        }
+        Ok(())
+    }
+
+    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
+        let len = read.len().min(write.len());
+        for i in 0..len {
+            read[i] = self.try_transfer(write[i] as u16)? as u8;
+        }
+        Ok(())
     }
 }

@@ -8,6 +8,7 @@
 //! Higher layers live in [`super::protocol`] (message build/parse) and
 //! [`super::policy`] (Source/Sink negotiation).
 
+use crate::Steal;
 use crate::delay::DelayUs;
 use crate::pac;
 use crate::rcc::{AhbPeriph, Apb2Periph, Rcc};
@@ -184,6 +185,19 @@ impl Usbpd {
         u
     }
 
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            usbpd: unsafe { pac::USBPD::steal() },
+        })
+    }
+
     // =====================================================================
     // CC port configuration
     // =====================================================================
@@ -335,9 +349,9 @@ impl Usbpd {
         self.usbpd.status.write_bits(0);
         self.usbpd.control.modify_bits(|v| v | CONTROL_BMC_START);
 
-        while self.usbpd.status.read_bits() & STATUS_IF_TX_END == 0 {
-            core::hint::spin_loop();
-        }
+        crate::spin::spin_wait("USBPD TX end", || {
+            self.usbpd.status.read_bits() & STATUS_IF_TX_END != 0
+        });
         self.usbpd.status.write_bits(STATUS_IF_TX_END);
 
         // Release the CC line so reception can resume (WCH SDK).

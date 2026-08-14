@@ -34,6 +34,7 @@
 //! }
 //! ```
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::{Clocks, Rcc};
 use crate::reset::Resettable;
@@ -60,6 +61,37 @@ impl Default for Config {
             speed: Speed::Standard,
         }
     }
+}
+
+/// I2C error types.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// Timed out waiting for a bus event.
+    Timeout,
+    /// No acknowledge received from the addressed slave.
+    Acknowledge,
+    /// Bus error detected.
+    BusError,
+    /// Arbitration lost.
+    Arbitration,
+}
+
+/// Abstract I2C master bus trait for driver implementations.
+///
+/// This keeps drivers decoupled from the concrete [`I2c1`] type.
+pub trait I2cBus {
+    /// Error type returned by the bus.
+    type Error;
+
+    /// Write `data` to the slave at 7-bit `addr`.
+    fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), Self::Error>;
+
+    /// Read `buffer.len()` bytes from the slave at 7-bit `addr`.
+    fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error>;
+
+    /// Write then (re)START and read (repeated-START transaction).
+    fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error>;
 }
 
 /// I2C1 master driver
@@ -107,10 +139,42 @@ impl I2c1 {
         s
     }
 
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            i2c: unsafe { pac::I2C1::steal() },
+            clocks: unsafe { Clocks::steal() },
+        })
+    }
+
+    /// Check the error flags, returning the matching error.
+    fn check_error(&self) -> Result<(), Error> {
+        if self.i2c.star1.af() {
+            Err(Error::Acknowledge)
+        } else if self.i2c.star1.berr() {
+            Err(Error::BusError)
+        } else if self.i2c.star1.arlo() {
+            Err(Error::Arbitration)
+        } else {
+            Ok(())
+        }
+    }
+
     /// Send a START condition and wait for SB.
-    fn start(&mut self) {
+    fn try_start(&mut self) -> Result<(), Error> {
         self.i2c.ctlr1.set_start();
-        while !self.i2c.star1.sb() {}
+        if !crate::spin::try_spin_wait(|| {
+            self.i2c.star1.sb() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+        }) {
+            return Err(Error::Timeout);
+        }
+        self.check_error()
     }
 
     /// Send a STOP condition.
@@ -119,25 +183,51 @@ impl I2c1 {
     }
 
     /// Write the 7-bit slave address and wait for ADDR.
-    fn send_addr(&mut self, addr: u8, read: bool) {
+    fn try_send_addr(&mut self, addr: u8, read: bool) -> Result<(), Error> {
         let byte = ((addr as u32) << 1) | (read as u32);
         self.i2c.datar.write_datar(byte);
-        while !self.i2c.star1.addr() {}
+        if !crate::spin::try_spin_wait(|| {
+            self.i2c.star1.addr()
+                || self.i2c.star1.af()
+                || self.i2c.star1.berr()
+                || self.i2c.star1.arlo()
+        }) {
+            return Err(Error::Timeout);
+        }
+        self.check_error()?;
         // Clear ADDR by reading STAR2
         let _ = self.i2c.star2.read_bits();
+        Ok(())
     }
 
     /// Write `data` to the slave at 7-bit `addr`.
     pub fn write(&mut self, addr: u8, data: &[u8]) {
-        self.start();
-        self.send_addr(addr, false);
+        self.try_write(addr, data)
+            .unwrap_or_else(|e| panic!("I2C write failed: {e:?}"));
+    }
+
+    /// Write `data`, returning an error on timeout / bus fault.
+    pub fn try_write(&mut self, addr: u8, data: &[u8]) -> Result<(), Error> {
+        self.try_start()?;
+        self.try_send_addr(addr, false)?;
         for &b in data {
-            while !self.i2c.star1.tx_e() {}
+            if !crate::spin::try_spin_wait(|| {
+                self.i2c.star1.tx_e() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+            }) {
+                return Err(Error::Timeout);
+            }
+            self.check_error()?;
             self.i2c.datar.write_datar(b as u32);
         }
         // Wait for the last byte to be transferred
-        while !self.i2c.star1.btf() {}
+        if !crate::spin::try_spin_wait(|| {
+            self.i2c.star1.btf() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+        }) {
+            return Err(Error::Timeout);
+        }
+        self.check_error()?;
         self.stop();
+        Ok(())
     }
 
     /// Read `buf.len()` bytes from the slave at 7-bit `addr`.
@@ -145,52 +235,78 @@ impl I2c1 {
     /// Uses the standard STM32-style sequence: every byte is acknowledged
     /// except the last, which is NACKed so the slave releases the bus.
     pub fn read(&mut self, addr: u8, buf: &mut [u8]) {
+        self.try_read(addr, buf)
+            .unwrap_or_else(|e| panic!("I2C read failed: {e:?}"));
+    }
+
+    /// Read `buf.len()` bytes, returning an error on timeout / bus fault.
+    pub fn try_read(&mut self, addr: u8, buf: &mut [u8]) -> Result<(), Error> {
         if buf.is_empty() {
-            return;
+            return Ok(());
         }
-        self.start();
-        self.send_addr(addr, true);
-        self.read_after_addr(buf);
+        self.try_start()?;
+        self.try_send_addr(addr, true)?;
+        self.try_read_after_addr(buf)
     }
 
     /// Write `write` then, without releasing the bus, (re)start and read into
     /// `read` (a proper repeated-START transaction).
     pub fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) {
+        self.try_write_read(addr, write, read)
+            .unwrap_or_else(|e| panic!("I2C write_read failed: {e:?}"));
+    }
+
+    /// Repeated-START transaction, returning an error on timeout / bus fault.
+    pub fn try_write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
         if write.is_empty() {
-            self.read(addr, read);
-            return;
+            return self.try_read(addr, read);
         }
 
         // Write phase: START + address + data, keeping the bus held.
-        self.start();
-        self.send_addr(addr, false);
+        self.try_start()?;
+        self.try_send_addr(addr, false)?;
         for &b in write {
-            while !self.i2c.star1.tx_e() {}
+            if !crate::spin::try_spin_wait(|| {
+                self.i2c.star1.tx_e() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+            }) {
+                return Err(Error::Timeout);
+            }
+            self.check_error()?;
             self.i2c.datar.write_datar(b as u32);
         }
-        while !self.i2c.star1.btf() {}
+        if !crate::spin::try_spin_wait(|| {
+            self.i2c.star1.btf() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+        }) {
+            return Err(Error::Timeout);
+        }
+        self.check_error()?;
 
         if read.is_empty() {
             self.stop();
-            return;
+            return Ok(());
         }
 
         // Repeated START + read phase.
-        self.start();
-        self.send_addr(addr, true);
-        self.read_after_addr(read);
+        self.try_start()?;
+        self.try_send_addr(addr, true)?;
+        self.try_read_after_addr(read)
     }
 
     /// ACK-managed receive loop; expects START + address already sent and
     /// `ADDR` cleared by the caller.
-    fn read_after_addr(&mut self, buf: &mut [u8]) {
+    fn try_read_after_addr(&mut self, buf: &mut [u8]) -> Result<(), Error> {
         let len = buf.len();
         match len {
             1 => {
                 // Single byte: NACK it so the slave ends the transaction.
                 self.i2c.ctlr1.clr_pos();
                 self.i2c.ctlr1.clr_ack();
-                while !self.i2c.star1.rx_ne() {}
+                if !crate::spin::try_spin_wait(|| {
+                    self.i2c.star1.rx_ne() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+                }) {
+                    return Err(Error::Timeout);
+                }
+                self.check_error()?;
                 self.stop();
                 buf[0] = self.i2c.datar.datar() as u8;
             }
@@ -199,7 +315,12 @@ impl I2c1 {
                 // automatically; wait BTF, STOP, then read both.
                 self.i2c.ctlr1.set_pos();
                 self.i2c.ctlr1.set_ack();
-                while !self.i2c.star1.btf() {}
+                if !crate::spin::try_spin_wait(|| {
+                    self.i2c.star1.btf() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+                }) {
+                    return Err(Error::Timeout);
+                }
+                self.check_error()?;
                 self.stop();
                 buf[0] = self.i2c.datar.datar() as u8;
                 buf[1] = self.i2c.datar.datar() as u8;
@@ -209,24 +330,56 @@ impl I2c1 {
                 self.i2c.ctlr1.clr_pos();
                 self.i2c.ctlr1.set_ack();
                 for slot in buf[..len - 2].iter_mut() {
-                    while !self.i2c.star1.rx_ne() {}
+                    if !crate::spin::try_spin_wait(|| {
+                        self.i2c.star1.rx_ne() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+                    }) {
+                        return Err(Error::Timeout);
+                    }
+                    self.check_error()?;
                     *slot = self.i2c.datar.datar() as u8;
                 }
                 // Last-but-one byte: wait BTF, NACK, read it.
-                while !self.i2c.star1.btf() {}
+                if !crate::spin::try_spin_wait(|| {
+                    self.i2c.star1.btf() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+                }) {
+                    return Err(Error::Timeout);
+                }
+                self.check_error()?;
                 self.i2c.ctlr1.clr_ack();
                 buf[len - 2] = self.i2c.datar.datar() as u8;
                 // Last byte: RXNE, STOP, read.
-                while !self.i2c.star1.rx_ne() {}
+                if !crate::spin::try_spin_wait(|| {
+                    self.i2c.star1.rx_ne() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+                }) {
+                    return Err(Error::Timeout);
+                }
+                self.check_error()?;
                 self.stop();
                 buf[len - 1] = self.i2c.datar.datar() as u8;
             }
         }
+        Ok(())
     }
 
     /// Consume the driver and return the underlying peripheral.
     pub fn release(self) -> pac::I2C1 {
         self.i2c
+    }
+}
+
+impl I2cBus for I2c1 {
+    type Error = Error;
+
+    fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), Error> {
+        self.try_write(addr, data)
+    }
+
+    fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Error> {
+        self.try_read(addr, buffer)
+    }
+
+    fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
+        self.try_write_read(addr, write, read)
     }
 }
 
@@ -285,6 +438,19 @@ impl I2c1Slave {
         s.i2c.ctlr1.set_pe();
 
         s
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            i2c: unsafe { pac::I2C1::steal() },
+        })
     }
 
     /// Block until the master addresses the slave, then return the

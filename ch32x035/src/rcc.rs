@@ -21,6 +21,7 @@
 
 use enumflags2::BitFlags;
 
+use crate::Steal;
 use crate::pac;
 
 /// APB2 bus peripherals (clock enable / reset bit positions)
@@ -117,6 +118,18 @@ impl Rcc {
         Self { rcc }
     }
 
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure no other handle to `RCC` is live.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            rcc: unsafe { pac::RCC::steal() },
+        })
+    }
+
     /// Get a reference to the raw RCC register block
     pub fn regs(&self) -> &pac::rcc::RegisterBlock {
         &self.rcc
@@ -197,9 +210,7 @@ impl Rcc {
 
     /// Enable clocks for the given AHB peripherals
     pub fn ahb_enable<I: Into<BitFlags<AhbPeriph>>>(&mut self, periphs: I) {
-        self.rcc
-            .ahbpcenr
-            .modify_bits(|v| v | periphs.into().bits());
+        self.rcc.ahbpcenr.modify_bits(|v| v | periphs.into().bits());
     }
 
     /// Disable clocks for the given AHB peripherals
@@ -227,6 +238,19 @@ impl Clocks {
     /// reset, and the SVD does not expose PLL configuration, so this returns
     /// the HSI frequency.
     pub fn new(_rcc: &Rcc) -> Self {
+        Self { sysclk_hz: HSI_HZ }
+    }
+
+    /// Reconstruct the current clock configuration without an `Rcc` handle.
+    ///
+    /// Equivalent to [`Clocks::new`] reading the current RCC state; on the
+    /// CH32X035 this is the 48 MHz HSI.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure no other handle to `RCC` is live.
+    #[inline]
+    pub unsafe fn steal() -> Self {
         Self { sysclk_hz: HSI_HZ }
     }
 

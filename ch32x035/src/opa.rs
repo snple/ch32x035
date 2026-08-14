@@ -18,6 +18,7 @@
 //! opa.enable_opamp1();
 //! ```
 
+use crate::Steal;
 use crate::pac;
 
 /// Unlock key 1
@@ -117,6 +118,20 @@ impl Opa {
     /// Create a new OPA driver. OPA has no clock gate on the CH32X035.
     pub fn new(opa: pac::OPA) -> Self {
         Self { opa, cfg2: 0 }
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            opa: unsafe { pac::OPA::steal() },
+            cfg2: 0,
+        })
     }
 
     /// Unlock the OPA, CMP and polling configuration registers (write key

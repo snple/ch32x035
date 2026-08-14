@@ -29,6 +29,7 @@
 
 use core::marker::PhantomData;
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::{Apb2Periph, Rcc};
 
@@ -55,6 +56,21 @@ impl Pins {
             _gpiob: gpiob,
             _gpioc: gpioc,
         }
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the GPIO ports have been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            _gpioa: unsafe { pac::GPIOA::steal() },
+            _gpiob: unsafe { pac::GPIOB::steal() },
+            _gpioc: unsafe { pac::GPIOC::steal() },
+        })
     }
 
     /// Create a pin token for GPIO port A, pin `N` (0..=23).

@@ -17,6 +17,7 @@
 
 use core::fmt;
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::{Clocks, Rcc};
 use crate::reset::Resettable;
@@ -143,6 +144,31 @@ impl Errors {
     }
 }
 
+/// UART error types (recoverable operation errors).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// Timed out waiting for data / TX FIFO space.
+    Timeout,
+}
+
+/// Abstract UART bus trait for driver implementations.
+///
+/// This keeps drivers decoupled from concrete UART types.
+pub trait UartBus {
+    /// Error type returned by the bus.
+    type Error;
+
+    /// Write bytes to the UART.
+    fn write(&mut self, data: &[u8]) -> Result<(), Self::Error>;
+
+    /// Read bytes, blocking until the buffer is full.
+    fn read(&mut self, buffer: &mut [u8]) -> Result<(), Self::Error>;
+
+    /// Block until all pending transfers are complete.
+    fn flush(&mut self) -> Result<(), Self::Error>;
+}
+
 /// Generate a UART driver type for a PAC USART peripheral.
 macro_rules! impl_uart {
     ($name:ident, $periph:ty, $pclk:expr) => {
@@ -253,10 +279,34 @@ macro_rules! impl_uart {
                 u
             }
 
+            /// Obtain a handle without ownership checks.
+            ///
+            /// # Safety
+            ///
+            /// The caller must ensure the peripheral has been initialized and
+            /// that no data races occur.
+            #[inline]
+            pub unsafe fn steal() -> Steal<Self> {
+                Steal(Self {
+                    uart: unsafe { <$periph>::steal() },
+                    clocks: unsafe { Clocks::steal() },
+                })
+            }
+
             /// Write a single byte, blocking until the TX buffer is empty.
             pub fn write_byte(&mut self, byte: u8) {
-                while !self.uart.statr.txe() {}
+                self.try_write_byte(byte)
+                    .unwrap_or_else(|_| panic!("UART TX timed out"));
+            }
+
+            /// Write a single byte, returning [`Error::Timeout`] if the TX
+            /// buffer never empties.
+            pub fn try_write_byte(&mut self, byte: u8) -> Result<(), Error> {
+                if !crate::spin::try_spin_wait(|| self.uart.statr.txe()) {
+                    return Err(Error::Timeout);
+                }
                 self.uart.datar.write_dr(byte as u32);
+                Ok(())
             }
 
             /// Write a byte string.
@@ -275,8 +325,16 @@ macro_rules! impl_uart {
 
             /// Read a byte, blocking until data is available.
             pub fn read_byte(&mut self) -> u8 {
-                while !self.uart.statr.rxne() {}
-                self.uart.datar.dr() as u8
+                self.try_read_byte()
+                    .unwrap_or_else(|_| panic!("UART RX timed out"))
+            }
+
+            /// Read a byte, returning [`Error::Timeout`] if no data arrives.
+            pub fn try_read_byte(&mut self) -> Result<u8, Error> {
+                if !crate::spin::try_spin_wait(|| self.uart.statr.rxne()) {
+                    return Err(Error::Timeout);
+                }
+                Ok(self.uart.datar.dr() as u8)
             }
 
             /// Non-blocking read: returns `Some(byte)` if data is available.
@@ -323,7 +381,7 @@ macro_rules! impl_uart {
             /// Only the low 9 bits are transmitted; in 8-bit mode the upper
             /// bits are ignored.
             pub fn write_word(&mut self, word: u16) {
-                while !self.uart.statr.txe() {}
+                crate::spin::spin_wait("UART TX empty", || self.uart.statr.txe());
                 self.uart.datar.write_dr(word as u32);
             }
 
@@ -428,8 +486,20 @@ macro_rules! impl_uart {
 
             /// Wait until the transmission is complete (TXE + TC).
             pub fn flush(&mut self) {
-                while !self.uart.statr.txe() {}
-                while !self.uart.statr.tc() {}
+                self.try_flush()
+                    .unwrap_or_else(|_| panic!("UART flush timed out"));
+            }
+
+            /// Wait until the transmission is complete, returning
+            /// [`Error::Timeout`] if it never completes.
+            pub fn try_flush(&mut self) -> Result<(), Error> {
+                if !crate::spin::try_spin_wait(|| self.uart.statr.txe()) {
+                    return Err(Error::Timeout);
+                }
+                if !crate::spin::try_spin_wait(|| self.uart.statr.tc()) {
+                    return Err(Error::Timeout);
+                }
+                Ok(())
             }
 
             /// Consume the driver and return the underlying peripheral.
@@ -447,6 +517,28 @@ macro_rules! impl_uart {
             fn write_str(&mut self, s: &str) -> fmt::Result {
                 self.write_str(s);
                 Ok(())
+            }
+        }
+
+        impl UartBus for $name {
+            type Error = Error;
+
+            fn write(&mut self, data: &[u8]) -> Result<(), Error> {
+                for &b in data {
+                    self.try_write_byte(b)?;
+                }
+                Ok(())
+            }
+
+            fn read(&mut self, buffer: &mut [u8]) -> Result<(), Error> {
+                for slot in buffer.iter_mut() {
+                    *slot = self.try_read_byte()?;
+                }
+                Ok(())
+            }
+
+            fn flush(&mut self) -> Result<(), Error> {
+                self.try_flush()
             }
         }
     };
