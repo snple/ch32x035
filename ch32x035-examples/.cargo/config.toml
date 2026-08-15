@@ -1,3 +1,17 @@
 [build]
 target = "riscv32imac-unknown-none-elf"
-runner = "wlink"
+
+# Choose the default `cargo run` tool: `probe-rs` flashes and runs via a
+# hardware debugger (WCH-Link) and provides defmt support.
+#
+# The chip passed to probe-rs must match the sub-model feature selected in
+# Cargo.toml (ch32x035f8u6).
+#
+# Linker flags are defined in the workspace root `.cargo/config.toml`.
+[target.riscv32imac-unknown-none-elf]
+# WCH-Link speaks WCH's own 2-wire SDI protocol (not standard ARM SWD), so
+# no `--protocol` is needed; probe-rs auto-detects WCH-Link.
+runner = "probe-rs run --chip CH32X035F8U6"
+
+[env]
+DEFMT_LOG = "debug"
