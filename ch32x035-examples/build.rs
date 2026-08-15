@@ -8,6 +8,11 @@ fn main() {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
     println!("cargo:rustc-link-search={}", out.display());
 
+    // Link the defmt linker script (`defmt.x`) provided by the `defmt` crate.
+    // The examples always use defmt; keeping this here instead of the
+    // workspace-wide `.cargo/config.toml` leaves the HAL defmt-agnostic.
+    println!("cargo:rustc-link-arg=-Tdefmt.x");
+
     // The file `memory.x` defines the FLASH and RAM regions for the CH32X035
     let memory_x = include_bytes!("memory.x");
     let mut f = File::create(out.join("memory.x")).unwrap();
