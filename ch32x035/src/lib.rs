@@ -16,6 +16,10 @@
 //! - `critical-section-impl` - register the critical-section implementation
 //! - `panic-handler` - provide a default panic handler
 //! - `run-from-ram` - link the image for RAM execution
+//! - `ch32x035r8t6` / `ch32x035c8t6` / `ch32x035g8u6` / `ch32x035g8r6` /
+//!   `ch32x035f8u6` / `ch32x035f7p6` / `ch32x035d8u6` - select exactly one
+//!   sub-model (package); see [`package`]. This gates which GPIO pins are
+//!   available at compile time.
 //!
 //! ## Example
 //!
@@ -37,6 +41,7 @@ pub mod gpio;
 pub mod i2c;
 pub mod interrupt;
 pub mod opa;
+pub mod package;
 pub mod pwr;
 pub mod rcc;
 pub mod reset;
@@ -65,6 +70,7 @@ pub use ch32x035_rt::peripheral::Peripherals as CorePeripherals;
 // Top-level type re-exports
 pub use delay::{Delay, DelayUs};
 pub use gpio::{Pin, Pins};
+pub use package::MODEL;
 pub use rcc::{Clocks, Rcc};
 pub use time::{Duration, Instant};
 pub use timer::{Timer1Pwm, Timer2, Timer2Pwm, Timer3};

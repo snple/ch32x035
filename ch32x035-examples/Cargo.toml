@@ -35,7 +35,9 @@ name = "usbpd_dual"
 path = "src/usbpd_dual.rs"
 
 [dependencies]
-ch32x035 = { workspace = true, features = ["defmt", "critical-section-impl", "panic-handler"] }
+# Select the CH32X035 sub-model here (see ch32x035::package). The examples
+# target the largest LQFP64M part; change this to match your board.
+ch32x035 = { workspace = true, features = ["defmt", "critical-section-impl", "panic-handler", "ch32x035r8t6"] }
 ch32x035-pac.workspace = true
 ch32x035-rt.workspace = true
 defmt = { workspace = true }
