@@ -14,14 +14,15 @@
 //! | `ch32x035f7p6`   | TSSOP20  | 18   | 1   | 1   | no       | 11          |
 //! | `ch32x035d8u6`   | QFN12    | 11   | 1   | 0   | no       | 5           |
 //!
-//! Exactly one sub-model feature must be enabled; [`MODEL_COUNT`] enforces
-//! this at compile time and [`MODEL`] names the selected part. The pin
-//! availability helpers ([`pa_available`], [`pb_available`],
-//! [`pc_available`]) are used by [`crate::gpio::Pins`] to reject un-bonded
-//! pins at compile time. Peripheral counts ([`OPA_COUNT`], [`CMP_COUNT`],
-//! [`ADC_CHANNELS`]) and flags ([`HAS_USB_HOST`]) describe the remaining
-//! differences, and [`crate::opa::Opa`] gates its OPA2 / CMP1-3 methods
-//! accordingly.
+//! Sub-model features are additive. Enable the feature(s) for the package(s)
+//! you target: with one model selected, [`crate::gpio::Pins`] rejects every
+//! pin not bonded out on it; with several (e.g. `cargo check --all-features`),
+//! the union is exposed instead. The pin availability helpers
+//! ([`pa_available`], [`pb_available`], [`pc_available`]) and the peripheral
+//! counts ([`OPA_COUNT`], [`CMP_COUNT`], [`ADC_CHANNELS`]) / flags
+//! ([`HAS_USB_HOST`]) are all defined as that union, and [`crate::opa::Opa`]
+//! gates its OPA2 / CMP1-3 methods accordingly. [`MODEL`] names the part when
+//! exactly one model is selected.
 //!
 //! # Notes on shorted pins
 //!
@@ -42,7 +43,7 @@ macro_rules! any_model {
     };
 }
 
-/// Number of enabled sub-model features. Must be exactly one.
+/// Number of enabled sub-model features.
 const MODEL_COUNT: u32 = cfg!(feature = "ch32x035r8t6") as u32
     + cfg!(feature = "ch32x035c8t6") as u32
     + cfg!(feature = "ch32x035g8u6") as u32
@@ -51,15 +52,16 @@ const MODEL_COUNT: u32 = cfg!(feature = "ch32x035r8t6") as u32
     + cfg!(feature = "ch32x035f7p6") as u32
     + cfg!(feature = "ch32x035d8u6") as u32;
 
-const _: () = assert!(
-    MODEL_COUNT == 1,
-    "exactly one CH32X035 sub-model feature must be enabled: ch32x035r8t6, \
-     ch32x035c8t6, ch32x035g8u6, ch32x035g8r6, ch32x035f8u6, ch32x035f7p6, \
-     or ch32x035d8u6"
-);
-
-/// Name of the selected sub-model (e.g. `"CH32X035G8U6"`).
-pub const MODEL: &str = if cfg!(feature = "ch32x035r8t6") {
+/// Name of the selected sub-model.
+///
+/// Meaningful when exactly one sub-model feature is enabled. Returns a
+/// placeholder when none are enabled or when several are enabled (e.g. under
+/// `cargo check --all-features`).
+pub const MODEL: &str = if MODEL_COUNT == 0 {
+    "CH32X035 (no model selected)"
+} else if MODEL_COUNT > 1 {
+    "CH32X035 (multiple models)"
+} else if cfg!(feature = "ch32x035r8t6") {
     "CH32X035R8T6"
 } else if cfg!(feature = "ch32x035c8t6") {
     "CH32X035C8T6"

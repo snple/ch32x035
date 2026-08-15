@@ -17,6 +17,11 @@ critical-section.workspace = true
 defmt = { workspace = true, optional = true }
 
 [features]
+# Defaults to the largest LQFP64M part; consumers should select the
+# `ch32x035*` feature(s) for the package(s) they target. Sub-model features
+# are additive: selecting one gives exact pin gating, selecting several (or
+# `cargo check --all-features`) exposes their union, so diagnostic builds
+# still compile.
 default = ["defmt", "critical-section-impl", "panic-handler", "ch32x035r8t6"]
 defmt = ["dep:defmt"]
 critical-section-impl = []
@@ -26,10 +31,10 @@ run-from-ram = ["ch32x035-rt/run-from-ram"]
 # CH32X035 sub-model (package) selection.
 #
 # The CH32X035 is sold in several packages that bond out different subsets of
-# the 60 GPIO pins and different numbers of OPA/CMP blocks. Enable exactly one
-# of the features below to expose only the pins that physically exist on the
-# chosen package; `Pins::pa`/`Pins::pb`/`Pins::pc` then reject un-bonded pins
-# at compile time.
+# the 60 GPIO pins and different numbers of OPA/CMP blocks. Enable the
+# feature(s) for the package(s) you target; `Pins::pa`/`Pins::pb`/`Pins::pc`
+# then reject any pin bonded out on none of the selected packages at compile
+# time.
 #
 #   model          package  GPIO  OPA  CMP
 #   ch32x035r8t6   LQFP64M  60    2    3   (default)
