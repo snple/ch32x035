@@ -125,8 +125,15 @@ pub trait Resettable {
 用 `impl_apb2!`/`impl_apb1!`/`impl_ahb!` 三个宏为 PAC 类型批量实现。无复位线的
 外设（如 `DMA`）只实现 `enable_clock`，`reset` 留空。
 
-`Clocks` 目前是平凡值（`sysclk_hz = 48 MHz HSI`，SVD 未暴露 PLL 配置），
-提供 `new(&Rcc)` / `from_frequency(hz)` / `unsafe steal()`。
+时钟树很简单：**固定 48 MHz HSI → `HPRE`（AHB 预分频器）→ 内核/HCLK/PCLK1/PCLK2**，
+无 PLL、无 HSE、无时钟源切换。`rcc.rs` 提供：
+
+- `HclkPrescaler`（`Div1`..`Div256`）、`McoSource`、`Config { hclk, hsi_trim, mco }`。
+- `Rcc::freeze(Config) -> Clocks` 应用配置并返回时钟快照；
+  `Rcc::hclk_prescaler()` 回读当前 `HPRE`。
+- `Clocks::new(&Rcc)` 从 `CFGR0.HPRE` **回读真实频率**（`sysclk_hz = 48 MHz / 除数`），
+  另有 `hclk_hz()` / `apb1_hz()` / `apb2_hz()`（三者与 `sysclk_hz` 相同）、
+  `from_frequency(hz)` / `unsafe steal()`。
 
 ---
 

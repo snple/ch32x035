@@ -9,9 +9,7 @@
 //! let board = Board::init(RCC, GPIOA, GPIOB, GPIOC);
 //! ```
 
-use ch32x035::{
-    Clocks, Rcc, gpio::Pins, pac,
-};
+use ch32x035::{Clocks, Rcc, gpio::Pins, pac, rcc::Config};
 
 /// Standard initialization for a CH32X035 application.
 pub struct Board {
@@ -33,7 +31,7 @@ impl Board {
         gpioc: pac::GPIOC,
     ) -> Self {
         let mut rcc = Rcc::new(rcc_periph);
-        let clocks = Clocks::new(&rcc);
+        let clocks = rcc.freeze(Config::default());
         let pins = Pins::init(gpioa, gpiob, gpioc, &mut rcc);
 
         Board { rcc, clocks, pins }
