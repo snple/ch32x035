@@ -23,7 +23,7 @@
 
 ## 1. 搭工作区骨架（Crate 分层）
 
-按样板建立五层结构：
+按样板建立分层结构（核心 5 个 crate + `xtask` 工具；`drivers`/`usb` 等按需另加）：
 
 ```
 <chip>/             # 工作区根
@@ -42,20 +42,22 @@
 ## 2. 生成 PAC
 
 - 移植 `xtask` 的生成器（从两个样板任选一份抄，改 SVD 路径与 crate 名）。
-- 关键点：**cell 类型按寄存器类型区分**（rp2350 的 generator 已实现）——
+- 关键点：**cell 类型按寄存器类型区分**（Cortex-M 系，参考 rp2350 的 generator）——
   可写（RW/WO）且在原子别名地址范围内的用 `AtomicCell`，只读（RO）用 `VolatileCell`；
-  RISC-V 无原子别名时全用 `VolatileCell`。
+  RISC-V 无原子别名，直接全用 `VolatileCell`（参考 ch32x035）。
 - 生成后跑 `cargo xtask gen-pac --check` 保证生成代码与 SVD 无漂移，**且不要手改生成代码**。
 
-参考：`rp2350/xtask/src/generator.rs`、`ch32x035-pac/src/generated/common.rs`。
+参考：`ch32x035/xtask/src/generator.rs`、`ch32x035-pac/src/generated/common.rs`。
 
-验收：PAC 有 27 个外设 ZST、`peripheral!` 宏注入 `Deref` + `PTR` + `steal()`。
+验收：PAC 有全部外设 ZST，`peripheral!` 宏注入 `Deref` + `PTR` + `steal()`。
 
 ## 3. 运行时 rt
 
 手写零依赖运行时（或从样板拷贝改）：
 
-- reset handler：栈初始化、`.bss` 清零、核级初始化（RISC-V 写 CSR；Cortex-M 使能 FPU/协处理器）。
+- reset handler：栈初始化、`.bss` 清零、核级初始化
+  （RISC-V 写 CSR；Cortex-M 使能 FPU/协处理器，**并释放 spinlock**——RP2350 不释放
+  spinlock 会导致外设访问卡死）。
 - 向量表 / 中断控制器初始化。
 - `link.x` / `link_ram.x`（RAM 执行变体）、`device.x`（由 PAC build.rs 提供）。
 
@@ -113,8 +115,9 @@ cargo fmt -p <chip> -- --check
 
 ## 9. 坑的沉淀
 
-把过程中踩的坑（SVD 字段名错、位宽不符、缺寄存器、芯片 quirks）**写回 `docs/style-guide.md` 的
-「SVD 与厂商头文件的坑」和「常见 bug 模式」两节**——这是样板项目最重要的可复用资产，别只记在本地。
+把过程中踩的坑（SVD 字段名错、位宽不符、缺寄存器、芯片 quirks）**写回 `docs/style-guide.md`
+对应的坑章节（如「SVD 与厂商头文件的坑」「常见 bug 模式」）**——这是样板项目最重要的可复用资产，
+别只记在本地。
 
 ---
 
@@ -124,7 +127,7 @@ cargo fmt -p <chip> -- --check
 |------|----------|--------|
 | 内核 / target | RV32IMAC / riscv32imac-unknown-none-elf | Cortex-M33 / thumbv8m.main-none-eabihf |
 | 寄存器 cell | 全 VolatileCell（非原子） | AtomicCell（RW/WO）+ VolatileCell（RO） |
-| 时钟门控 | 走 RCC（`Resettable::init(&mut Rcc)`） | 走复位寄存器（`Resettable::init()`） |
+| 复位 / 时钟 | `Resettable::init(&mut Rcc)`：时钟门控 + 复位（走 RCC） | `Resettable::init()`：只复位（走 RESETS）；外设时钟由 `clocks` 模块管理 |
 | 中断控制器 | PFIC（NVIC 风格） | NVIC |
 | I2C 硬件 | STM32F1 风格（软件状态机） | DesignWare（FIFO） |
 | USBPD | HAL 内子模块 | 无 |
