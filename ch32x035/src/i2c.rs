@@ -5,6 +5,15 @@
 //! polling. Clock stretching is left enabled, so a blocking slave pauses the
 //! bus while it processes each transaction.
 //!
+//! # Interrupt support
+//!
+//! Both drivers expose the low-level interrupt building blocks — enable and
+//! disable interrupt sources, read status flags, move data and clear flags
+//! with the required register-read/write sequences — so an application can
+//! write its own interrupt-driven state machine with
+//! [`bind`](crate::bind). The HAL deliberately does **not** implement that
+//! state machine.
+//!
 //! # Example (master)
 //!
 //! ```ignore
@@ -35,6 +44,7 @@
 //! ```
 
 use crate::Steal;
+use crate::dma::{DataSize, DmaChannel, DmaDir};
 use crate::pac;
 use crate::rcc::{Clocks, Rcc};
 use crate::reset::Resettable;
@@ -92,6 +102,78 @@ pub trait I2cBus {
 
     /// Write then (re)START and read (repeated-START transaction).
     fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error>;
+}
+
+/// Generate the interrupt-support API shared by the I2C1 master and slave
+/// drivers.
+///
+/// These are low-level building blocks: enable/disable interrupt sources,
+/// poll status flags and move data. The actual interrupt state machine is left
+/// to the application (typically written with [`bind`](crate::bind)).
+macro_rules! impl_i2c_interrupt {
+    ($name:ident) => {
+        impl $name {
+            /// Enable the event interrupt (SB, ADDR, ADD10, BTF, STOPF).
+            pub fn enable_event_interrupt(&mut self) {
+                self.i2c.ctlr2.set_itevten();
+            }
+
+            /// Enable the buffer interrupt (RXNE, TXE).
+            pub fn enable_buffer_interrupt(&mut self) {
+                self.i2c.ctlr2.set_itbufen();
+            }
+
+            /// Enable the error interrupt (BERR, ARLO, AF, OVR, PECERR).
+            pub fn enable_error_interrupt(&mut self) {
+                self.i2c.ctlr2.set_iterren();
+            }
+
+            /// Disable all I2C interrupt sources.
+            pub fn disable_interrupts(&mut self) {
+                self.i2c.ctlr2.clr_itevten();
+                self.i2c.ctlr2.clr_itbufen();
+                self.i2c.ctlr2.clr_iterren();
+            }
+
+            /// Received byte ready (RXNE flag).
+            pub fn rx_not_empty(&self) -> bool {
+                self.i2c.star1.rx_ne()
+            }
+
+            /// Data register empty, ready for the next byte (TXE flag).
+            pub fn tx_empty(&self) -> bool {
+                self.i2c.star1.tx_e()
+            }
+
+            /// Byte transfer finished (BTF flag).
+            pub fn byte_transfer_finished(&self) -> bool {
+                self.i2c.star1.btf()
+            }
+
+            /// Write the data register (from an interrupt handler).
+            pub fn write_data(&mut self, byte: u8) {
+                self.i2c.datar.write_datar(byte as u32);
+            }
+
+            /// Read the data register (from an interrupt handler).
+            pub fn read_data(&self) -> u8 {
+                self.i2c.datar.datar() as u8
+            }
+
+            /// Clear the ADDR flag (read STAR1, then read STAR2).
+            pub fn clear_address(&mut self) {
+                let _ = self.i2c.star1.read_bits();
+                let _ = self.i2c.star2.read_bits();
+            }
+
+            /// Clear the error flags (AF, BERR, ARLO).
+            pub fn clear_errors(&mut self) {
+                self.i2c.star1.clr_af();
+                self.i2c.star1.clr_berr();
+                self.i2c.star1.clr_arlo();
+            }
+        }
+    };
 }
 
 /// I2C1 master driver
@@ -155,14 +237,22 @@ impl I2c1 {
 
     /// Check the error flags, returning the matching error.
     fn check_error(&self) -> Result<(), Error> {
+        match self.pending_error() {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
+    }
+
+    /// The currently-pending I2C error, if any.
+    pub fn pending_error(&self) -> Option<Error> {
         if self.i2c.star1.af() {
-            Err(Error::Acknowledge)
+            Some(Error::Acknowledge)
         } else if self.i2c.star1.berr() {
-            Err(Error::BusError)
+            Some(Error::BusError)
         } else if self.i2c.star1.arlo() {
-            Err(Error::Arbitration)
+            Some(Error::Arbitration)
         } else {
-            Ok(())
+            None
         }
     }
 
@@ -175,11 +265,6 @@ impl I2c1 {
             return Err(Error::Timeout);
         }
         self.check_error()
-    }
-
-    /// Send a STOP condition.
-    fn stop(&mut self) {
-        self.i2c.ctlr1.set_stop();
     }
 
     /// Write the 7-bit slave address and wait for ADDR.
@@ -292,6 +377,129 @@ impl I2c1 {
         self.try_read_after_addr(read)
     }
 
+    /// Write `data` to the slave at 10-bit `addr`.
+    pub fn write_10bit(&mut self, addr: u16, data: &[u8]) {
+        self.try_write_10bit(addr, data)
+            .unwrap_or_else(|e| panic!("I2C write failed: {e:?}"));
+    }
+
+    /// 10-bit write, returning an error on timeout / bus fault.
+    pub fn try_write_10bit(&mut self, addr: u16, data: &[u8]) -> Result<(), Error> {
+        self.try_start()?;
+        self.try_send_addr_10bit(addr, false)?;
+        for &b in data {
+            if !crate::spin::try_spin_wait(|| {
+                self.i2c.star1.tx_e() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+            }) {
+                return Err(Error::Timeout);
+            }
+            self.check_error()?;
+            self.i2c.datar.write_datar(b as u32);
+        }
+        if !crate::spin::try_spin_wait(|| {
+            self.i2c.star1.btf() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+        }) {
+            return Err(Error::Timeout);
+        }
+        self.check_error()?;
+        self.stop();
+        Ok(())
+    }
+
+    /// Read `buf.len()` bytes from the slave at 10-bit `addr`.
+    pub fn read_10bit(&mut self, addr: u16, buf: &mut [u8]) {
+        self.try_read_10bit(addr, buf)
+            .unwrap_or_else(|e| panic!("I2C read failed: {e:?}"));
+    }
+
+    /// 10-bit read, returning an error on timeout / bus fault.
+    pub fn try_read_10bit(&mut self, addr: u16, buf: &mut [u8]) -> Result<(), Error> {
+        if buf.is_empty() {
+            return Ok(());
+        }
+        // 10-bit read = header write phase, then repeated START + read.
+        self.try_start()?;
+        self.try_send_addr_10bit(addr, false)?;
+        self.try_start()?;
+        self.try_send_addr_10bit(addr, true)?;
+        self.try_read_after_addr(buf)
+    }
+
+    /// Repeated-START 10-bit write/read transaction.
+    pub fn write_read_10bit(&mut self, addr: u16, write: &[u8], read: &mut [u8]) {
+        self.try_write_read_10bit(addr, write, read)
+            .unwrap_or_else(|e| panic!("I2C write_read failed: {e:?}"));
+    }
+
+    /// Repeated-START 10-bit transaction, returning an error on fault.
+    pub fn try_write_read_10bit(
+        &mut self,
+        addr: u16,
+        write: &[u8],
+        read: &mut [u8],
+    ) -> Result<(), Error> {
+        if write.is_empty() {
+            return self.try_read_10bit(addr, read);
+        }
+
+        self.try_start()?;
+        self.try_send_addr_10bit(addr, false)?;
+        for &b in write {
+            if !crate::spin::try_spin_wait(|| {
+                self.i2c.star1.tx_e() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+            }) {
+                return Err(Error::Timeout);
+            }
+            self.check_error()?;
+            self.i2c.datar.write_datar(b as u32);
+        }
+        if !crate::spin::try_spin_wait(|| {
+            self.i2c.star1.btf() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+        }) {
+            return Err(Error::Timeout);
+        }
+        self.check_error()?;
+
+        if read.is_empty() {
+            self.stop();
+            return Ok(());
+        }
+
+        self.try_start()?;
+        self.try_send_addr_10bit(addr, true)?;
+        self.try_read_after_addr(read)
+    }
+
+    /// Send a 10-bit address (header byte + low byte) and clear ADDR.
+    fn try_send_addr_10bit(&mut self, addr: u16, read: bool) -> Result<(), Error> {
+        // First byte: 11110 A9 A8 + R/W.
+        let first = 0xF0 | (((addr >> 8) as u32 & 0x03) << 1) | read as u32;
+        self.i2c.datar.write_datar(first);
+        if !crate::spin::try_spin_wait(|| {
+            self.i2c.star1.add10()
+                || self.i2c.star1.af()
+                || self.i2c.star1.berr()
+                || self.i2c.star1.arlo()
+        }) {
+            return Err(Error::Timeout);
+        }
+        self.check_error()?;
+        // Second byte: low 8 bits of the address.
+        self.i2c.datar.write_datar((addr & 0xFF) as u32);
+        if !crate::spin::try_spin_wait(|| {
+            self.i2c.star1.addr()
+                || self.i2c.star1.af()
+                || self.i2c.star1.berr()
+                || self.i2c.star1.arlo()
+        }) {
+            return Err(Error::Timeout);
+        }
+        self.check_error()?;
+        // Clear ADDR by reading STAR2.
+        let _ = self.i2c.star2.read_bits();
+        Ok(())
+    }
+
     /// ACK-managed receive loop; expects START + address already sent and
     /// `ADDR` cleared by the caller.
     fn try_read_after_addr(&mut self, buf: &mut [u8]) -> Result<(), Error> {
@@ -361,11 +569,122 @@ impl I2c1 {
         Ok(())
     }
 
+    /// Write `data` to the slave at 7-bit `addr` using DMA.
+    ///
+    /// Enables the I2C DMA request and starts a memory-to-peripheral transfer
+    /// into DATAR; the transfer is paced by the TXE flag.
+    pub fn write_dma<const CH: u8>(
+        &mut self,
+        ch: &DmaChannel<CH>,
+        addr: u8,
+        data: &[u8],
+    ) -> Result<(), Error> {
+        self.i2c.ctlr2.set_dmaen();
+        self.try_start()?;
+        self.try_send_addr(addr, false)?;
+        ch.start(
+            DmaDir::MemoryToPeripheral,
+            pac::i2c1::BASE + 0x10, // DATAR
+            data.as_ptr() as u32,
+            data.len() as u16,
+            DataSize::Byte,
+            DataSize::Byte,
+            false,
+            true,
+        );
+        ch.try_wait().map_err(|_| Error::Timeout)?;
+        if !crate::spin::try_spin_wait(|| {
+            self.i2c.star1.btf() || self.i2c.star1.berr() || self.i2c.star1.arlo()
+        }) {
+            return Err(Error::Timeout);
+        }
+        self.stop();
+        Ok(())
+    }
+
+    /// Read `data.len()` bytes from the slave at 7-bit `addr` using DMA.
+    ///
+    /// The `LAST` bit makes the hardware NACK the final byte so the slave
+    /// releases the bus.
+    pub fn read_dma<const CH: u8>(
+        &mut self,
+        ch: &DmaChannel<CH>,
+        addr: u8,
+        data: &mut [u8],
+    ) -> Result<(), Error> {
+        if data.is_empty() {
+            return Ok(());
+        }
+        self.i2c.ctlr2.set_dmaen();
+        self.try_start()?;
+        self.try_send_addr(addr, true)?;
+        self.i2c.ctlr2.set_last();
+        ch.start(
+            DmaDir::PeripheralToMemory,
+            pac::i2c1::BASE + 0x10, // DATAR
+            data.as_ptr() as u32,
+            data.len() as u16,
+            DataSize::Byte,
+            DataSize::Byte,
+            false,
+            true,
+        );
+        ch.try_wait().map_err(|_| Error::Timeout)?;
+        self.i2c.ctlr2.clr_last();
+        self.stop();
+        Ok(())
+    }
+
     /// Consume the driver and return the underlying peripheral.
     pub fn release(self) -> pac::I2C1 {
         self.i2c
     }
+
+    /// Start condition generated (SB flag).
+    pub fn start_sent(&self) -> bool {
+        self.i2c.star1.sb()
+    }
+
+    /// Address sent (ADDR flag).
+    pub fn address_sent(&self) -> bool {
+        self.i2c.star1.addr()
+    }
+
+    /// 10-bit address header sent (ADD10 flag).
+    pub fn addr10_sent(&self) -> bool {
+        self.i2c.star1.add10()
+    }
+
+    /// Send a START condition (from an interrupt handler).
+    pub fn start(&mut self) {
+        self.i2c.ctlr1.set_start();
+    }
+
+    /// Send a STOP condition (from an interrupt handler).
+    pub fn stop(&mut self) {
+        self.i2c.ctlr1.set_stop();
+    }
+
+    /// Enable or disable ACK generation for received bytes.
+    pub fn set_ack(&mut self, ack: bool) {
+        if ack {
+            self.i2c.ctlr1.set_ack();
+        } else {
+            self.i2c.ctlr1.clr_ack();
+        }
+    }
+
+    /// Set the ACK position for two-byte reception (`POS` bit).
+    pub fn set_ack_position(&mut self, second_last: bool) {
+        if second_last {
+            self.i2c.ctlr1.set_pos();
+        } else {
+            self.i2c.ctlr1.clr_pos();
+        }
+    }
 }
+
+impl_i2c_interrupt!(I2c1);
 
 impl I2cBus for I2c1 {
     type Error = Error;
@@ -434,6 +753,35 @@ impl I2c1Slave {
         s.i2c.oaddr1.write_add7_1((address & 0x7F) as u32);
 
         // ACK addresses/data; clock stretching stays enabled (NOSTRETCH = 0)
+        s.i2c.ctlr1.set_ack();
+        s.i2c.ctlr1.set_pe();
+
+        s
+    }
+
+    /// Create a new I2C1 slave with a 10-bit `address`, resetting and
+    /// clock-enabling the peripheral.
+    pub fn init_10bit(i2c: pac::I2C1, rcc: &mut Rcc, clocks: Clocks, address: u16) -> Self {
+        i2c.init(rcc);
+
+        let s = Self { i2c };
+
+        s.i2c.ctlr1.clr_pe();
+
+        let pclk1 = clocks.apb1_hz();
+        let freq = (pclk1 / 1_000_000).clamp(2, 50);
+        s.i2c.ctlr2.write_freq(freq);
+
+        // Own address in 10-bit mode.
+        s.i2c.oaddr1.set_addmode();
+        s.i2c.oaddr1.write_add9_8(((address >> 8) & 0x03) as u32);
+        s.i2c.oaddr1.write_add7_1(((address >> 1) & 0x7F) as u32);
+        if address & 1 != 0 {
+            s.i2c.oaddr1.set_add0();
+        } else {
+            s.i2c.oaddr1.clr_add0();
+        }
+
         s.i2c.ctlr1.set_ack();
         s.i2c.ctlr1.set_pe();
 
@@ -550,11 +898,12 @@ impl I2c1Slave {
         self.i2c.star1.af() || self.i2c.star1.berr() || self.i2c.star1.arlo()
     }
 
-    /// Clear all error flags.
-    pub fn clear_errors(&mut self) {
-        self.i2c.star1.clr_af();
-        self.i2c.star1.clr_berr();
-        self.i2c.star1.clr_arlo();
+    /// True while the master is addressing this slave (ADDR flag).
+    ///
+    /// Useful from an interrupt handler before calling
+    /// [`clear_address`](Self::clear_address).
+    pub fn address_matched(&self) -> bool {
+        self.i2c.star1.addr()
     }
 
     /// Consume the driver and return the underlying peripheral.
@@ -562,3 +911,5 @@ impl I2c1Slave {
         self.i2c
     }
 }
+
+impl_i2c_interrupt!(I2c1Slave);

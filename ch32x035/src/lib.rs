@@ -40,6 +40,7 @@ pub mod flash;
 pub mod gpio;
 pub mod i2c;
 pub mod interrupt;
+pub mod kit;
 pub mod opa;
 pub mod package;
 pub mod pwr;
@@ -73,7 +74,10 @@ pub use gpio::{Pin, Pins};
 pub use package::MODEL;
 pub use rcc::{Clocks, Rcc};
 pub use time::{Duration, Instant};
-pub use timer::{Timer1Pwm, Timer2, Timer2Pwm, Timer3};
+pub use timer::{
+    EncoderDirection, Timer1Capture, Timer1Encoder, Timer1Pwm, Timer2, Timer2Capture,
+    Timer2Encoder, Timer2Pwm, Timer3,
+};
 pub use uart::Uart1;
 pub use usbpd::{
     CcComparator, CcPort, CcPull, PdSink, PdSource, SinkState, SopType, SourceState, Usbpd,

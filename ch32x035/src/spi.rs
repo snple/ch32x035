@@ -1,6 +1,7 @@
 //! SPI driver
 //!
-//! Blocking master-mode SPI for SPI1 (APB2).
+//! SPI1 (APB2) driver supporting master/slave modes, full- and half-duplex,
+//! CRC and DMA transfers.
 //!
 //! # Example
 //!
@@ -14,6 +15,7 @@
 //! ```
 
 use crate::Steal;
+use crate::dma::{DataSize, DmaChannel, DmaDir};
 use crate::pac;
 use crate::rcc::{Clocks, Rcc};
 use crate::reset::Resettable;
@@ -81,6 +83,28 @@ pub enum DataBits {
     Sixteen,
 }
 
+/// SPI master/slave role.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Mode {
+    /// SPI master.
+    Master,
+    /// SPI slave (software slave management, always selected).
+    Slave,
+}
+
+/// SPI transfer direction.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Direction {
+    /// Two-line full duplex.
+    FullDuplex,
+    /// Single-line half duplex, transmit only.
+    HalfDuplexTx,
+    /// Single-line half duplex, receive only.
+    HalfDuplexRx,
+    /// Two-line receive-only (master, `MISO` only).
+    ReceiveOnly,
+}
+
 /// SPI configuration
 #[derive(Clone, Copy, Debug)]
 pub struct Config {
@@ -92,6 +116,10 @@ pub struct Config {
     pub cpha: Cpha,
     /// Frame format
     pub data_bits: DataBits,
+    /// Master or slave
+    pub mode: Mode,
+    /// Transfer direction
+    pub direction: Direction,
 }
 
 impl Default for Config {
@@ -101,6 +129,8 @@ impl Default for Config {
             cpol: Cpol::IdleLow,
             cpha: Cpha::FirstEdge,
             data_bits: DataBits::Eight,
+            mode: Mode::Master,
+            direction: Direction::FullDuplex,
         }
     }
 }
@@ -168,10 +198,38 @@ impl Spi1 {
         // Baud rate prescaler
         s.spi.ctlr1.write_br(config.baud_div.br_value());
 
-        // Master mode (MSTR), software slave management (SSM + SSI high)
-        s.spi.ctlr1.set_mstr();
+        // Master / slave mode with software slave management.
         s.spi.ctlr1.set_ssm();
-        s.spi.ctlr1.set_ssi();
+        match config.mode {
+            Mode::Master => {
+                s.spi.ctlr1.set_mstr();
+                s.spi.ctlr1.set_ssi(); // deassert internal NSS
+            }
+            Mode::Slave => {
+                s.spi.ctlr1.clr_mstr();
+                s.spi.ctlr1.clr_ssi(); // selected via software
+            }
+        }
+
+        // Transfer direction (full / half duplex, receive-only).
+        match config.direction {
+            Direction::FullDuplex => {
+                s.spi.ctlr1.clr_bidimode();
+                s.spi.ctlr1.clr_rxonly();
+            }
+            Direction::HalfDuplexTx => {
+                s.spi.ctlr1.set_bidimode();
+                s.spi.ctlr1.set_bidioe();
+            }
+            Direction::HalfDuplexRx => {
+                s.spi.ctlr1.set_bidimode();
+                s.spi.ctlr1.clr_bidioe();
+            }
+            Direction::ReceiveOnly => {
+                s.spi.ctlr1.clr_bidimode();
+                s.spi.ctlr1.set_rxonly();
+            }
+        }
 
         // Enable SPI
         s.spi.ctlr1.set_spe();
@@ -234,6 +292,78 @@ impl Spi1 {
         for b in buf.iter_mut() {
             *b = self.read();
         }
+    }
+
+    /// Set the first-bit order (`true` = LSB first, `false` = MSB first).
+    pub fn set_first_bit_lsb(&mut self, lsb_first: bool) {
+        if lsb_first {
+            self.spi.ctlr1.set_lsbfirst();
+        } else {
+            self.spi.ctlr1.clr_lsbfirst();
+        }
+    }
+
+    /// Enable CRC generation with the given polynomial.
+    pub fn enable_crc(&mut self, polynomial: u8) {
+        self.spi.crcr.write_crcpoly(polynomial as u32);
+        self.spi.ctlr1.set_crcen();
+    }
+
+    /// Disable CRC generation.
+    pub fn disable_crc(&mut self) {
+        self.spi.ctlr1.clr_crcen();
+    }
+
+    /// Request that the CRC be transmitted on the next transfer.
+    ///
+    /// Call this after clocking out the last data word so the hardware appends
+    /// the CRC.
+    pub fn send_crc(&mut self) {
+        self.spi.ctlr1.set_crcnext();
+    }
+
+    /// Read the TX CRC register.
+    pub fn read_tx_crc(&self) -> u16 {
+        self.spi.tcrcr.txcrc() as u16
+    }
+
+    /// Read the RX CRC register.
+    pub fn read_rx_crc(&self) -> u16 {
+        self.spi.rcrcr.rxcrc() as u16
+    }
+
+    /// Transmit `data` using DMA.
+    pub fn write_dma<const CH: u8>(&mut self, ch: &DmaChannel<CH>, data: &[u8]) -> Result<(), Error> {
+        self.spi.ctlr2.set_txdmaen();
+        ch.start(
+            DmaDir::MemoryToPeripheral,
+            pac::spi1::BASE + 0x0C, // DATAR
+            data.as_ptr() as u32,
+            data.len() as u16,
+            DataSize::Byte,
+            DataSize::Byte,
+            false,
+            true,
+        );
+        ch.try_wait().map_err(|_| Error::Timeout)?;
+        crate::spin::spin_wait("SPI TX complete", || !self.spi.statr.bsy());
+        Ok(())
+    }
+
+    /// Receive into `data` using DMA.
+    pub fn read_dma<const CH: u8>(&mut self, ch: &DmaChannel<CH>, data: &mut [u8]) -> Result<(), Error> {
+        self.spi.ctlr2.set_rxdmaen();
+        ch.start(
+            DmaDir::PeripheralToMemory,
+            pac::spi1::BASE + 0x0C, // DATAR
+            data.as_ptr() as u32,
+            data.len() as u16,
+            DataSize::Byte,
+            DataSize::Byte,
+            false,
+            true,
+        );
+        ch.try_wait().map_err(|_| Error::Timeout)
     }
 
     /// Consume the driver and return the underlying peripheral.

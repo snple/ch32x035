@@ -90,11 +90,33 @@ impl Foo {
 - PAC 外设结构体是非 `Copy` 的 ZST，`Deref<Target = RegisterBlock>`，自带
   `pub const unsafe fn steal() -> Self`（所以 HAL 的 `steal()` 里用
   `pac::FOO::steal()`；宏里注意写 `<$periph>::steal()` 加尖括号）。
-- 寄存器访问用 `AtomicCell<u32>`：`set_bits`/`clr_bits` 走 SET/CLR 硬件别名。
-  清中断/清标志的 W1C 位用 `write_bits(mask)`，**别用 `clr_bits`**。
+- 寄存器访问用 `VolatileCell<u32>`（**不是 rp2350 的 `AtomicCell`**）：只有
+  `read_bits`/`write_bits`/`modify_bits`，`modify_bits` 是读-改-写、**非原子**，
+  没有 SET/CLR 硬件别名。清中断/清标志的 W1C 位用 `write_bits(mask)`。
 - 字段命名统一：`fn field()` 读、`fn write_field(v)` 写多位数、
   `fn set_field()`/`fn clr_field()` 操作单比特位。
 - **禁止裸指针 + 魔法数访问寄存器**（DMA 的 raw 访问是历史遗留，新代码走 PAC）。
+
+### 芯片级关键事实（接入/改 HAL 前必核实）
+
+- 内核 WCH QingKe V4C：RV32IMAC，单核 M-mode；target = `riscv32imac-unknown-none-elf`。
+- 地址映射：FLASH 62K @ `0x00000000`，RAM 20K @ `0x20000000`。
+- 中断控制器 PFIC @ `0xE000E000`（NVIC 风格：IENR/IRER/IPSR/IPRR/IACTR[8] + IPRIOR[256]）。
+- SysTick @ `0xE000F000`（64 位向上计数 CTLR/SR/CNT/CMP）。
+- 向量表：flash `0x0` = `.init`（la sp; j Reset），`0xC` 起 55 项 `.word` 处理器地址；
+  `mtvec = base | 3`（WCH vectored 模式）。
+- CSR：`0xbc0=0x1f`（流水线）、`0x804=0x3`（中断嵌套+硬件栈）、`mstatus=0x88`（MIE|MPIE）。
+- 中断枚举用 WCH 规范名 + `_IRQ` 后缀。
+
+### SVD 与厂商头文件的坑（历史教训）
+
+- `esig` 的 `UNIID3` 被误标为 `AWU_APR`（用 `read_bits` 读原始值）。
+- `opa` CTLR1/2 的 MODE/PSEL/NSEL 位宽与 WCH 头文件不同（以 SVD 为准）。
+- `usbpd` 的 PORT_CC 无比较器字段定义（CC_CMP 位 5-7 需手写掩码）。
+- `adc` **无 CTLR3**（CLK_DIV/AWD_SCAN/AWD_RST_EN 未入 SVD，PAC 无法访问）。
+- `tim` CH2 输入捕获预分频器字段名是 **IC2PCS**（`write_ic2pcs`），不是 IC2PSC。
+- **凡是依赖 WCH 头文件的结论，都要回到 SVD/PAC 核对**：头文件是 C 视角，
+  SVD 才是 PAC 的事实源（生成器以 SVD 为准）。
 
 ---
 
@@ -202,6 +224,24 @@ pub trait UartBus {
 **同名阻塞方法（返回 `()`）会遮蔽 trait 方法（返回 `Result`）**——直接调用走
 阻塞语义，泛型 `<B: XxxBus>` 走 `Result` 语义，这是有意为之。
 
+### 中断支持约定（重要）
+
+**HAL 不实现中断状态机**，只提供足够的低层 API，让用户用 `#[bind]` 自己写：
+
+- 中断使能/禁能：`enable_*_interrupt` / `disable_interrupts`。
+- 状态标志读取：`rx_not_empty` / `tx_empty` / `byte_transfer_finished` 等。
+- 数据读写：`write_data` / `read_data`。
+- **清标志的时序必须封装**（这是易错点）：I2C 的 ADDR 清法 =「读 STAR1→读 STAR2」、
+  STOPF 清法 =「读 STAR1→写 CTLR1」；USART 的 IDLE/错误清法 =「读 STATR→读 DATAR」。
+- 模板：`i2c.rs` 的 `impl_i2c_interrupt!` 宏（主/从共用的低层中断 API）。
+
+### 平台无关工具放 `kit`
+
+与硬件寄存器无关的通用数据结构/工具放 `kit` 模块（仿 rp2350），**不要塞进外设模块**：
+
+- `kit::ring_buffer::RingBuffer`（中断接收用的环形缓冲；最初误放 `uart.rs`，已迁出）。
+- 新增通用工具前先问「它碰不碰寄存器」——不碰就放 `kit`。
+
 ---
 
 ## 9. 宏约定
@@ -212,6 +252,11 @@ pub trait UartBus {
 - **`macro_rules!` 卫生坑**：宏内 `let x = ...` 绑定的标识符对调用方传入的
   `$body:block` 不可见（E0425），把标识符作为 `$x:ident` 参数传入。
 - **`ty` 片段做限定路径要加尖括号**：`<$periph>::steal()`，不能 `$periph::steal()`。
+- **`paste!` 里 `::[<Ident>]` 路径段会报错**（"expected identifier, found `[`"），
+  改用方法调用形式 `regs.reg.[<method $n>]()`。
+- **`macro_rules!` 子模块导入**：父模块定义 `macro_rules! peripheral` 后必须
+  `pub(crate) use peripheral;`，否则子模块 `use super::peripheral` 报
+  "no `peripheral` in `peripheral`"（rustc 1.97）。
 
 ---
 
@@ -234,17 +279,33 @@ cargo check -p ch32x035-examples --bins
 cargo fmt -p ch32x035 -- --check
 ```
 
+### 烧录与链接
+
+- `ch32x035-rt` 的 build.rs 按 `run-from-ram` feature 复制 `link.x` / `link_ram.x`。
+- `-Tlink.x` 由 workspace `.cargo/config.toml` 的 rustflags 提供；
+  `memory.x` / `device.x` 由示例 / PAC 的 build.rs 提供。
+- defmt：示例需 `use defmt_rtt as _;` 且自己提供 `_defmt_timestamp`（defmt-rtt 不含）。
+
 ---
 
 ## 12. 常见 bug 模式（历史教训）
 
 - **无界 `while !flag {}`** → 有界 `spin_wait`（本指南第 6 节已完成改造）。
-- **W1C 寄存器写反方向**（该 `write_bits` 却用 `clr_bits`）。
+- **W1C 寄存器清位用 `write_bits(mask)`**，不要 `modify_bits(|v| v & !mask)`
+  （ch32x035 PAC 无 `set_bits`/`clr_bits`，读-改-写非原子）。
 - **除零**（分频/波特率计算，`compute_brr` 里 `debug_assert!(baudrate != 0)`）。
 - **`1u32 << 32` 是 UB**；位移错误。
 - **空数据不碰总线**（`I2c1::read`/`write_read` 对空缓冲提前返回）。
 - **事务必须等硬件完成**（UART `flush` 等 TC 位，不是只等 TXE）。
 - **I2C 从机 `loop` 等 STOP 是外部主机时序**，不要套固定上界。
+- **`inline const` block 只在 monomorphization 时求值**：`cargo check` 不触发
+  E0080（未被调用的导出泛型不实例化），必须 `cargo build` 才能看到报错。
+- **新过程宏首次被示例使用时必测**（`#[bind]` 曾缺 `fn` 关键字，示例从没用过就没暴露）。
+- **`enumflags2` 0.7.x 是属性宏** `#[enumflags2::bitflags]`（不是 `#[derive(BitFlags)]`）。
+- **`critical_section::RawRestoreState` 是 `u32` 类型别名**，直接返回/接收 u32，
+  不能 `RawRestoreState(x)` 构造。
+- **函数参数不会自动 `Into`**：需要泛型 `<I: Into<...>>` 或显式 `.into()`。
+- **`static mut` 引用用 `&mut *core::ptr::addr_of_mut!(X)`**（Rust 2024 下 `&mut X` 直接写报错）。
 
 ---
 
