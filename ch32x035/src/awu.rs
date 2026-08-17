@@ -14,6 +14,7 @@
 //! awu.enable();
 //! ```
 
+use crate::Steal;
 use crate::pac;
 
 /// Auto-Wakeup driver
@@ -25,6 +26,19 @@ impl Awu {
     /// Create a new AWU driver. AWU has no clock gate on the CH32X035.
     pub fn new(awu: pac::AWU) -> Self {
         Self { awu }
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            awu: unsafe { pac::AWU::steal() },
+        })
     }
 
     /// Enable the auto-wakeup function.

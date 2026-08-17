@@ -18,12 +18,21 @@
 
 use core::ptr::{read_volatile, write_volatile};
 
+use crate::Steal;
 use crate::pac;
 
 /// FLASH unlock key 1
 const KEY1: u32 = 0x4567_0123;
 /// FLASH unlock key 2
 const KEY2: u32 = 0xCDEF_89AB;
+
+/// FLASH error types.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// Timed out waiting for the flash controller to become idle.
+    Timeout,
+}
 
 /// FLASH driver
 pub struct Flash {
@@ -34,6 +43,19 @@ impl Flash {
     /// Create a new FLASH driver.
     pub fn init(flash: pac::FLASH) -> Self {
         Self { flash }
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            flash: unsafe { pac::FLASH::steal() },
+        })
     }
 
     /// Unlock the flash control registers (write the key sequence).
@@ -49,8 +71,16 @@ impl Flash {
 
     /// Block until the flash controller is idle.
     pub fn wait_busy(&self) {
-        while self.flash.statr.bsy() {
-            core::hint::spin_loop();
+        crate::spin::spin_wait("flash idle", || !self.flash.statr.bsy());
+    }
+
+    /// Wait until the flash controller is idle, returning [`Error::Timeout`]
+    /// if it stays busy.
+    pub fn try_wait_busy(&self) -> Result<(), Error> {
+        if crate::spin::try_spin_wait(|| !self.flash.statr.bsy()) {
+            Ok(())
+        } else {
+            Err(Error::Timeout)
         }
     }
 

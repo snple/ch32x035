@@ -1,9 +1,13 @@
 //! OPA (Operational Amplifier / Comparator)
 //!
-//! Drives the CH32X035's two operational amplifiers (OPA1/OPA2, `CTLR1`),
-//! three comparators (CMP1-3, `CTLR2`) and the polling / timer-break (BKIN)
-//! / interrupt configuration (`CFGR1`/`CFGR2`). The control registers must
-//! be unlocked by writing the key sequence before configuration.
+//! Drives the CH32X035's operational amplifiers (OPA1, plus OPA2 on packages
+//! that have it, `CTLR1`) and comparators (CMP1-3 on packages that have them,
+//! `CTLR2`), as well as the polling / timer-break (BKIN) / interrupt
+//! configuration (`CFGR1`/`CFGR2`). The control registers must be unlocked
+//! by writing the key sequence before configuration.
+//!
+//! The OPA2 and CMP1-3 methods only exist when the selected sub-model
+//! actually has those blocks (see [`crate::package`]).
 //!
 //! # Example
 //!
@@ -18,6 +22,7 @@
 //! opa.enable_opamp1();
 //! ```
 
+use crate::Steal;
 use crate::pac;
 
 /// Unlock key 1
@@ -32,20 +37,24 @@ const OPA_KEY2: u32 = 0xCDEF_89AB;
 /// `CFGR1` bit: OPA1 positive-input polling enable
 const CFG_POLL_EN1: u16 = 1 << 0;
 /// `CFGR1` bit: OPA2 positive-input polling enable
+#[cfg(feature = "__opa2")]
 const CFG_POLL_EN2: u16 = 1 << 1;
 /// `CFGR1` bit: OPA1 timer-break (BKIN) enable
 const CFG_BKIN_EN1: u16 = 1 << 2;
 /// `CFGR1` bit: OPA2 timer-break (BKIN) enable
+#[cfg(feature = "__opa2")]
 const CFG_BKIN_EN2: u16 = 1 << 3;
 /// `CFGR1` bit: OPA1 system-reset enable
 const CFG_RST_EN1: u16 = 1 << 4;
 /// `CFGR1` bit: OPA2 system-reset enable
+#[cfg(feature = "__opa2")]
 const CFG_RST_EN2: u16 = 1 << 5;
 /// `CFGR1` bit: break input timer selection (swap OPA1/OPA2)
 const CFG_BKIN_SEL: u16 = 1 << 6;
 /// `CFGR1` bit: OPA1 output interrupt enable
 const CFG_IE_OUT1: u16 = 1 << 8;
 /// `CFGR1` bit: OPA2 output interrupt enable
+#[cfg(feature = "__opa2")]
 const CFG_IE_OUT2: u16 = 1 << 9;
 /// `CFGR1` bit: polling-interval-end interrupt enable
 const CFG_IE_CNT: u16 = 1 << 10;
@@ -119,6 +128,20 @@ impl Opa {
         Self { opa, cfg2: 0 }
     }
 
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            opa: unsafe { pac::OPA::steal() },
+            cfg2: 0,
+        })
+    }
+
     /// Unlock the OPA, CMP and polling configuration registers (write key
     /// sequence).
     pub fn unlock(&mut self) {
@@ -174,6 +197,7 @@ impl Opa {
     }
 
     /// Configure OPA2 (mode, inputs, feedback).
+    #[cfg(feature = "__opa2")]
     pub fn configure_opamp2(&mut self, cfg: &OpampConfig) {
         if cfg.mode {
             self.opa.ctlr1.set_mode2();
@@ -190,16 +214,19 @@ impl Opa {
     }
 
     /// Enable OPA2.
+    #[cfg(feature = "__opa2")]
     pub fn enable_opamp2(&mut self) {
         self.opa.ctlr1.set_en2();
     }
 
     /// Disable OPA2.
+    #[cfg(feature = "__opa2")]
     pub fn disable_opamp2(&mut self) {
         self.opa.ctlr1.clr_en2();
     }
 
     /// Check whether OPA2 is enabled.
+    #[cfg(feature = "__opa2")]
     pub fn is_opamp2_enabled(&self) -> bool {
         self.opa.ctlr1.en2()
     }
@@ -211,6 +238,7 @@ impl Opa {
     /// Configure comparator 1 (CMP1).
     ///
     /// See [`ComparatorConfig`] for the pin mapping of each field.
+    #[cfg(feature = "__cmp1")]
     pub fn configure_comparator1(&mut self, cfg: &ComparatorConfig) {
         let reg = &self.opa.ctlr2;
         if cfg.mode {
@@ -236,21 +264,25 @@ impl Opa {
     }
 
     /// Enable comparator 1.
+    #[cfg(feature = "__cmp1")]
     pub fn enable_comparator1(&mut self) {
         self.opa.ctlr2.set_en1();
     }
 
     /// Disable comparator 1.
+    #[cfg(feature = "__cmp1")]
     pub fn disable_comparator1(&mut self) {
         self.opa.ctlr2.clr_en1();
     }
 
     /// Check whether comparator 1 is enabled.
+    #[cfg(feature = "__cmp1")]
     pub fn is_comparator1_enabled(&self) -> bool {
         self.opa.ctlr2.en1()
     }
 
     /// Configure comparator 2 (CMP2).
+    #[cfg(feature = "__cmp2")]
     pub fn configure_comparator2(&mut self, cfg: &ComparatorConfig) {
         let reg = &self.opa.ctlr2;
         if cfg.mode {
@@ -276,21 +308,25 @@ impl Opa {
     }
 
     /// Enable comparator 2.
+    #[cfg(feature = "__cmp2")]
     pub fn enable_comparator2(&mut self) {
         self.opa.ctlr2.set_en2();
     }
 
     /// Disable comparator 2.
+    #[cfg(feature = "__cmp2")]
     pub fn disable_comparator2(&mut self) {
         self.opa.ctlr2.clr_en2();
     }
 
     /// Check whether comparator 2 is enabled.
+    #[cfg(feature = "__cmp2")]
     pub fn is_comparator2_enabled(&self) -> bool {
         self.opa.ctlr2.en2()
     }
 
     /// Configure comparator 3 (CMP3).
+    #[cfg(feature = "__cmp3")]
     pub fn configure_comparator3(&mut self, cfg: &ComparatorConfig) {
         let reg = &self.opa.ctlr2;
         if cfg.mode {
@@ -316,16 +352,19 @@ impl Opa {
     }
 
     /// Enable comparator 3.
+    #[cfg(feature = "__cmp3")]
     pub fn enable_comparator3(&mut self) {
         self.opa.ctlr2.set_en3();
     }
 
     /// Disable comparator 3.
+    #[cfg(feature = "__cmp3")]
     pub fn disable_comparator3(&mut self) {
         self.opa.ctlr2.clr_en3();
     }
 
     /// Check whether comparator 3 is enabled.
+    #[cfg(feature = "__cmp3")]
     pub fn is_comparator3_enabled(&self) -> bool {
         self.opa.ctlr2.en3()
     }
@@ -364,6 +403,7 @@ impl Opa {
     }
 
     /// Enable/disable OPA2 positive-input polling.
+    #[cfg(feature = "__opa2")]
     pub fn set_poll_opamp2(&mut self, enabled: bool) {
         self.cfg1_bit(CFG_POLL_EN2, enabled);
     }
@@ -375,6 +415,7 @@ impl Opa {
     }
 
     /// Set how many positive inputs OPA2 polls (P0, P0+P1 or P0+P1+P2).
+    #[cfg(feature = "__opa2")]
     pub fn set_poll_count_opamp2(&mut self, count: PollCount) {
         self.cfg2 = (self.cfg2 & !(0b11 << 11)) | ((count as u16) << 11);
         self.set_cfg2(self.cfg2);
@@ -394,6 +435,7 @@ impl Opa {
     }
 
     /// Enable/disable OPA2 as the timer break (BKIN) source.
+    #[cfg(feature = "__opa2")]
     pub fn set_break_opamp2(&mut self, enabled: bool) {
         self.cfg1_bit(CFG_BKIN_EN2, enabled);
     }
@@ -411,6 +453,7 @@ impl Opa {
     }
 
     /// Enable/disable OPA2 resetting the system.
+    #[cfg(feature = "__opa2")]
     pub fn set_reset_opamp2(&mut self, enabled: bool) {
         self.cfg1_bit(CFG_RST_EN2, enabled);
     }
@@ -421,6 +464,7 @@ impl Opa {
     }
 
     /// Enable/disable the OPA2 output interrupt.
+    #[cfg(feature = "__opa2")]
     pub fn set_interrupt_opamp2(&mut self, enabled: bool) {
         self.cfg1_bit(CFG_IE_OUT2, enabled);
     }
@@ -446,6 +490,7 @@ impl Opa {
     }
 
     /// OPA2 output-high flag (set while polling).
+    #[cfg(feature = "__opa2")]
     pub fn opamp2_output_flag(&self) -> bool {
         self.cfg1() & CFG_IF_OUT2 != 0
     }

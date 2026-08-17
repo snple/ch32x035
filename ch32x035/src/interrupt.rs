@@ -110,11 +110,7 @@ pub unsafe fn cs_acquire() -> RawRestoreState {
     crate::rt::interrupt::disable();
 
     let prev = CS_NESTING.fetch_add(1, Ordering::AcqRel);
-    if prev == 0 {
-        mstatus
-    } else {
-        0
-    }
+    if prev == 0 { mstatus } else { 0 }
 }
 
 /// Release a critical section using the state from [`cs_acquire`]

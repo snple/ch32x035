@@ -3,24 +3,28 @@
 //! Provides:
 //! - peripheral clock-enable / disable for the APB1/APB2/AHB buses
 //! - peripheral reset helpers
+//! - clock-tree configuration (HSI trim, AHB prescaler, MCO output)
 //! - [`Clocks`], which tracks the current system clock frequency
 //!
-//! The CH32X035 boots from the internal HSI oscillator at **48 MHz** with no
-//! PLL. The vendor SVD's `CFGR0` only exposes `MCO` and `HPRE`, so this HAL
-//! does not (yet) configure the PLL; `sysclk_hz()` returns 48 MHz.
+//! The CH32X035 has a minimal clock tree: a fixed **48 MHz** HSI oscillator
+//! feeds an AHB prescaler (`HPRE` in `CFGR0`) that produces the core / HCLK /
+//! PCLK1 / PCLK2 clocks. There is no PLL and no external-crystal option, so
+//! the prescaler is the only frequency control available. After reset the
+//! prescaler is `Div1`, so the system runs at 48 MHz.
 //!
 //! # Example
 //!
 //! ```ignore
-//! use ch32x035::{Rcc, rcc::{Apb2Periph, Clocks}};
+//! use ch32x035::{Rcc, rcc::{Apb2Periph, Config}};
 //!
 //! let mut rcc = Rcc::new(dp.RCC);
+//! let clocks = rcc.freeze(Config::default());
 //! rcc.apb2_enable(Apb2Periph::Usart1 | Apb2Periph::Iopa);
-//! let clocks = Clocks::new(&rcc);
 //! ```
 
 use enumflags2::BitFlags;
 
+use crate::Steal;
 use crate::pac;
 
 /// APB2 bus peripherals (clock enable / reset bit positions)
@@ -97,6 +101,155 @@ pub enum AhbReset {
     Usbpd = 1 << 17,
 }
 
+/// AHB prescaler (`HPRE`) values.
+///
+/// Divides the 48 MHz HSI clock to produce the core / HCLK / PCLK1 / PCLK2
+/// clocks. This prescaler is the only frequency knob in the CH32X035 clock
+/// tree.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum HclkPrescaler {
+    /// SYSCLK not divided (48 MHz)
+    Div1,
+    /// SYSCLK divided by 2 (24 MHz)
+    Div2,
+    /// SYSCLK divided by 3 (16 MHz)
+    Div3,
+    /// SYSCLK divided by 4 (12 MHz)
+    Div4,
+    /// SYSCLK divided by 5 (9.6 MHz)
+    Div5,
+    /// SYSCLK divided by 6 (8 MHz)
+    Div6,
+    /// SYSCLK divided by 7
+    Div7,
+    /// SYSCLK divided by 8 (6 MHz)
+    Div8,
+    /// SYSCLK divided by 16 (3 MHz)
+    Div16,
+    /// SYSCLK divided by 32 (1.5 MHz)
+    Div32,
+    /// SYSCLK divided by 64
+    Div64,
+    /// SYSCLK divided by 128
+    Div128,
+    /// SYSCLK divided by 256
+    Div256,
+}
+
+impl HclkPrescaler {
+    /// Raw `HPRE` field value written to `CFGR0`.
+    pub const fn bits(self) -> u32 {
+        match self {
+            Self::Div1 => 0b0000,
+            Self::Div2 => 0b0001,
+            Self::Div3 => 0b0010,
+            Self::Div4 => 0b0011,
+            Self::Div5 => 0b0100,
+            Self::Div6 => 0b0101,
+            Self::Div7 => 0b0110,
+            Self::Div8 => 0b0111,
+            Self::Div16 => 0b1011,
+            Self::Div32 => 0b1100,
+            Self::Div64 => 0b1101,
+            Self::Div128 => 0b1110,
+            Self::Div256 => 0b1111,
+        }
+    }
+
+    /// Clock divisor as an integer.
+    pub const fn divisor(self) -> u32 {
+        match self {
+            Self::Div1 => 1,
+            Self::Div2 => 2,
+            Self::Div3 => 3,
+            Self::Div4 => 4,
+            Self::Div5 => 5,
+            Self::Div6 => 6,
+            Self::Div7 => 7,
+            Self::Div8 => 8,
+            Self::Div16 => 16,
+            Self::Div32 => 32,
+            Self::Div64 => 64,
+            Self::Div128 => 128,
+            Self::Div256 => 256,
+        }
+    }
+
+    /// Decode a raw `HPRE` field value (4 bits).
+    ///
+    /// Encodings `0b1000`..`0b1010` are reserved but alias the power-of-two
+    /// prescalers; they are mapped to their effective divisor so that reading
+    /// back the register always yields a correct frequency.
+    pub const fn from_bits(bits: u32) -> Self {
+        match bits & 0xF {
+            0b0000 => Self::Div1,
+            0b0001 => Self::Div2,
+            0b0010 => Self::Div3,
+            0b0011 => Self::Div4,
+            0b0100 => Self::Div5,
+            0b0101 => Self::Div6,
+            0b0110 => Self::Div7,
+            0b0111 => Self::Div8,
+            0b1000 => Self::Div2,
+            0b1001 => Self::Div4,
+            0b1010 => Self::Div8,
+            0b1011 => Self::Div16,
+            0b1100 => Self::Div32,
+            0b1101 => Self::Div64,
+            0b1110 => Self::Div128,
+            _ => Self::Div256,
+        }
+    }
+}
+
+/// Microcontroller clock output (`MCO`) source.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum McoSource {
+    /// No clock output.
+    NoClock,
+    /// System clock (after the AHB prescaler).
+    SysClk,
+    /// 48 MHz HSI oscillator.
+    Hsi,
+}
+
+impl McoSource {
+    /// Raw `MCO` field value written to `CFGR0`.
+    pub const fn bits(self) -> u32 {
+        match self {
+            Self::NoClock => 0b000,
+            Self::SysClk => 0b100,
+            Self::Hsi => 0b101,
+        }
+    }
+}
+
+/// Clock-tree configuration for [`Rcc::freeze`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub struct Config {
+    /// AHB prescaler dividing the 48 MHz HSI clock.
+    pub hclk: HclkPrescaler,
+    /// Optional HSI trim value (`HSITRIM`, 5 bits). `None` keeps the factory
+    /// calibration.
+    pub hsi_trim: Option<u8>,
+    /// Optional `MCO` output source. `None` leaves the output unchanged.
+    pub mco: Option<McoSource>,
+}
+
+impl Default for Config {
+    /// Run at the full 48 MHz HSI with factory HSI trim and no MCO output.
+    fn default() -> Self {
+        Self {
+            hclk: HclkPrescaler::Div1,
+            hsi_trim: None,
+            mco: None,
+        }
+    }
+}
+
 /// Reset and Clock Control driver
 pub struct Rcc {
     rcc: pac::RCC,
@@ -115,6 +268,18 @@ impl Rcc {
     /// Create a new RCC driver, consuming the RCC peripheral.
     pub fn new(rcc: pac::RCC) -> Self {
         Self { rcc }
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure no other handle to `RCC` is live.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            rcc: unsafe { pac::RCC::steal() },
+        })
     }
 
     /// Get a reference to the raw RCC register block
@@ -197,9 +362,7 @@ impl Rcc {
 
     /// Enable clocks for the given AHB peripherals
     pub fn ahb_enable<I: Into<BitFlags<AhbPeriph>>>(&mut self, periphs: I) {
-        self.rcc
-            .ahbpcenr
-            .modify_bits(|v| v | periphs.into().bits());
+        self.rcc.ahbpcenr.modify_bits(|v| v | periphs.into().bits());
     }
 
     /// Disable clocks for the given AHB peripherals
@@ -218,27 +381,76 @@ impl Rcc {
     pub fn ahb_clear_reset<I: Into<BitFlags<AhbReset>>>(&mut self, periphs: I) {
         self.rcc.ahbrstr.modify_bits(|v| v & !periphs.into().bits());
     }
+
+    // =====================================================================
+    // Clock tree
+    // =====================================================================
+
+    /// Apply a clock-tree configuration and return the resulting [`Clocks`].
+    ///
+    /// Configures the HSI trim, the AHB prescaler (`HPRE`) and the MCO output
+    /// as requested. The CH32X035 has no PLL or clock-source switch, so the
+    /// prescaler is the only frequency control available.
+    pub fn freeze(&mut self, config: Config) -> Clocks {
+        if let Some(trim) = config.hsi_trim {
+            self.rcc.ctlr.write_hsitrim(u32::from(trim) & 0x1F);
+        }
+        if let Some(mco) = config.mco {
+            self.rcc.cfgr0.write_mco(mco.bits());
+        }
+        self.rcc.cfgr0.write_hpre(config.hclk.bits());
+
+        Clocks::new(self)
+    }
+
+    /// Read the currently configured AHB prescaler.
+    pub fn hclk_prescaler(&self) -> HclkPrescaler {
+        HclkPrescaler::from_bits(self.rcc.cfgr0.hpre())
+    }
 }
 
 impl Clocks {
-    /// Create a `Clocks` snapshot from the current RCC configuration.
+    /// Create a `Clocks` snapshot by reading the current RCC configuration.
     ///
-    /// On the CH32X035 the system clock comes from the 48 MHz HSI after
-    /// reset, and the SVD does not expose PLL configuration, so this returns
-    /// the HSI frequency.
-    pub fn new(_rcc: &Rcc) -> Self {
-        Self { sysclk_hz: HSI_HZ }
+    /// The system clock is the 48 MHz HSI divided by the AHB prescaler
+    /// (`HPRE`). `APB1` and `APB2` run at the same frequency (the CH32X035
+    /// has no APB prescalers).
+    pub fn new(rcc: &Rcc) -> Self {
+        Self {
+            sysclk_hz: HSI_HZ / rcc.hclk_prescaler().divisor(),
+        }
+    }
+
+    /// Reconstruct the current clock configuration without an `Rcc` handle.
+    ///
+    /// Equivalent to [`Clocks::new`] reading the current RCC state.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure no other handle to `RCC` is live.
+    #[inline]
+    pub unsafe fn steal() -> Self {
+        let rcc = unsafe { pac::RCC::steal() };
+        let prescaler = HclkPrescaler::from_bits(rcc.cfgr0.hpre());
+        Self {
+            sysclk_hz: HSI_HZ / prescaler.divisor(),
+        }
     }
 
     /// Create a `Clocks` with an explicit system clock frequency (Hz).
     ///
-    /// Use this if you configure the PLL via raw register access.
+    /// Use this if you configure the prescaler via raw register access.
     pub fn from_frequency(sysclk_hz: u32) -> Self {
         Self { sysclk_hz }
     }
 
     /// The system (core) clock frequency in Hz
     pub fn sysclk_hz(&self) -> u32 {
+        self.sysclk_hz
+    }
+
+    /// The AHB (HCLK) clock frequency in Hz (equal to SYSCLK on the CH32X035)
+    pub fn hclk_hz(&self) -> u32 {
         self.sysclk_hz
     }
 

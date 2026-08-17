@@ -15,6 +15,7 @@
 //! }
 //! ```
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::Rcc;
 use crate::reset::Resettable;
@@ -42,6 +43,19 @@ impl Iwdg {
         // Start the watchdog
         w.iwdg.ctlr.write_bits(IWDG_KEY_START);
         w
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            iwdg: unsafe { pac::IWDG::steal() },
+        })
     }
 
     /// Reload the watchdog counter (feed the dog).
@@ -88,12 +102,23 @@ impl Wwdg {
         w
     }
 
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            wwdg: unsafe { pac::WWDG::steal() },
+        })
+    }
+
     /// Feed the watchdog (rewrite the counter value).
     pub fn feed(&mut self, counter: u8) {
         let ctlr = self.wwdg.ctlr.read_bits() & !0x7F;
-        self.wwdg
-            .ctlr
-            .write_bits(ctlr | ((counter & 0x7F) as u32));
+        self.wwdg.ctlr.write_bits(ctlr | ((counter & 0x7F) as u32));
     }
 
     /// Enable the early-wakeup interrupt.

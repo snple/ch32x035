@@ -26,9 +26,18 @@
 //! led.into_output();
 //! led.set_high();
 //! ```
+//!
+//! # Package selection
+//!
+//! The CH32X035 is sold in several packages that bond out different subsets
+//! of the 60 GPIO pins. Enable exactly one sub-model cargo feature (see
+//! [`crate::package`]) and [`Pins::pa`]/[`Pins::pb`]/[`Pins::pc`] will only
+//! accept pins that physically exist on the chosen package, rejecting
+//! un-bonded pins at compile time.
 
 use core::marker::PhantomData;
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::{Apb2Periph, Rcc};
 
@@ -57,24 +66,58 @@ impl Pins {
         }
     }
 
-    /// Create a pin token for GPIO port A, pin `N` (0..=23).
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the GPIO ports have been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            _gpioa: unsafe { pac::GPIOA::steal() },
+            _gpiob: unsafe { pac::GPIOB::steal() },
+            _gpioc: unsafe { pac::GPIOC::steal() },
+        })
+    }
+
+    /// Create a pin token for GPIO port A, pin `N`.
+    ///
+    /// Only pins bonded out on the selected package (cargo feature) are
+    /// accepted; this is checked at compile time.
     pub fn pa<const N: u32>(&self) -> Pin<0, N> {
-        const { assert!(N <= 23, "GPIOA has pins 0..=23") };
+        const {
+            assert!(
+                crate::package::pa_available::<N>(),
+                "PA pin not bonded out on the selected CH32X035 package"
+            );
+        };
         Pin::new()
     }
 
-    /// Create a pin token for GPIO port B, pin `N` (0..=21).
+    /// Create a pin token for GPIO port B, pin `N`.
+    ///
+    /// Only pins bonded out on the selected package (cargo feature) are
+    /// accepted; this is checked at compile time.
     pub fn pb<const N: u32>(&self) -> Pin<1, N> {
-        const { assert!(N <= 21, "GPIOB has pins 0..=21") };
+        const {
+            assert!(
+                crate::package::pb_available::<N>(),
+                "PB pin not bonded out on the selected CH32X035 package"
+            );
+        };
         Pin::new()
     }
 
-    /// Create a pin token for GPIO port C, pin `N` (0..=7 or 14..=19).
+    /// Create a pin token for GPIO port C, pin `N`.
+    ///
+    /// Only pins bonded out on the selected package (cargo feature) are
+    /// accepted; this is checked at compile time.
     pub fn pc<const N: u32>(&self) -> Pin<2, N> {
         const {
             assert!(
-                N <= 7 || (N >= 14 && N <= 19),
-                "GPIOC has pins 0..=7 and 14..=19"
+                crate::package::pc_available::<N>(),
+                "PC pin not bonded out on the selected CH32X035 package"
             );
         };
         Pin::new()

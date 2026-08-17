@@ -4,6 +4,7 @@
 //! level). The CH32X035 runs in normal mode by default; this module is useful
 //! for low-power designs.
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::Rcc;
 use crate::reset::Resettable;
@@ -18,6 +19,19 @@ impl Pwr {
     pub fn init(pwr: pac::PWR, rcc: &mut Rcc) -> Self {
         pwr.init(rcc);
         Self { pwr }
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            pwr: unsafe { pac::PWR::steal() },
+        })
     }
 
     /// Enable deep-sleep (power-down) mode when `WFI` is executed.

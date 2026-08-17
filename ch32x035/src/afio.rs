@@ -17,6 +17,7 @@
 //! afio.set_i2c1_remap(I2c1Remap::Remap1);
 //! ```
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::{Apb2Periph, Rcc};
 
@@ -212,6 +213,19 @@ impl Afio {
     pub fn init(afio: pac::AFIO, rcc: &mut Rcc) -> Self {
         rcc.apb2_enable(Apb2Periph::Afio);
         Self { afio }
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            afio: unsafe { pac::AFIO::steal() },
+        })
     }
 
     /// Map EXTI `LINE` (0..=23) to the given GPIO port.

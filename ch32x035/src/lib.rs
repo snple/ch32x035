@@ -16,6 +16,10 @@
 //! - `critical-section-impl` - register the critical-section implementation
 //! - `panic-handler` - provide a default panic handler
 //! - `run-from-ram` - link the image for RAM execution
+//! - `ch32x035r8t6` / `ch32x035c8t6` / `ch32x035g8u6` / `ch32x035g8r6` /
+//!   `ch32x035f8u6` / `ch32x035f7p6` / `ch32x035d8u6` - select exactly one
+//!   sub-model (package); see [`package`]. This gates which GPIO pins are
+//!   available at compile time.
 //!
 //! ## Example
 //!
@@ -36,7 +40,9 @@ pub mod flash;
 pub mod gpio;
 pub mod i2c;
 pub mod interrupt;
+pub mod kit;
 pub mod opa;
+pub mod package;
 pub mod pwr;
 pub mod rcc;
 pub mod reset;
@@ -50,6 +56,7 @@ pub mod watchdog;
 
 mod critical_section_impl;
 mod panic_handler;
+mod spin;
 
 #[cfg(feature = "defmt")]
 pub use defmt;
@@ -64,42 +71,38 @@ pub use ch32x035_rt::peripheral::Peripherals as CorePeripherals;
 // Top-level type re-exports
 pub use delay::{Delay, DelayUs};
 pub use gpio::{Pin, Pins};
+pub use package::MODEL;
 pub use rcc::{Clocks, Rcc};
 pub use time::{Duration, Instant};
-pub use timer::{Timer1Pwm, Timer2, Timer2Pwm, Timer3};
+pub use timer::{
+    EncoderDirection, Timer1Capture, Timer1Encoder, Timer1Pwm, Timer2, Timer2Capture,
+    Timer2Encoder, Timer2Pwm, Timer3,
+};
 pub use uart::Uart1;
 pub use usbpd::{
     CcComparator, CcPort, CcPull, PdSink, PdSource, SinkState, SopType, SourceState, Usbpd,
 };
 
-/// A wrapper that allows access to a peripheral through `&self` only.
+/// Zero-cost wrapper returned by `steal()` methods.
 ///
-/// This is the "escape hatch" used by `unsafe fn steal()` implementations: it
-/// prevents calling `&mut self` methods (which would require ownership) while
-/// still allowing read/shared access. Modeled on the rp2350 `Steal<T>`.
-#[derive(Debug)]
-pub struct Steal<T> {
-    inner: T,
-}
-
-impl<T> Steal<T> {
-    /// Create a new wrapper
-    pub const fn new(inner: T) -> Self {
-        Self { inner }
-    }
-
-    /// Get a reference to the inner value
-    pub fn get(&self) -> &T {
-        &self.inner
-    }
-}
+/// Implements [`Deref`](core::ops::Deref) but **not** `DerefMut`, so the
+/// caller can only obtain `&T` — preventing access to `&mut self` methods
+/// (e.g. `init`, `release`). Modeled on the rp2350 `Steal<T>`.
+pub struct Steal<T>(pub(crate) T);
 
 impl<T> core::ops::Deref for Steal<T> {
     type Target = T;
 
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
-        &self.inner
+        &self.0
+    }
+}
+
+impl<T> AsRef<T> for Steal<T> {
+    #[inline(always)]
+    fn as_ref(&self) -> &T {
+        &self.0
     }
 }
 

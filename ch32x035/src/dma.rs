@@ -18,6 +18,7 @@
 use core::marker::PhantomData;
 use core::ptr::{read_volatile, write_volatile};
 
+use crate::Steal;
 use crate::pac;
 use crate::rcc::Rcc;
 use crate::reset::Resettable;
@@ -92,6 +93,14 @@ impl DataSize {
     }
 }
 
+/// DMA error types.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum Error {
+    /// Timed out waiting for the transfer to complete.
+    Timeout,
+}
+
 /// DMA1 driver
 pub struct Dma {
     dma: pac::DMA,
@@ -102,6 +111,19 @@ impl Dma {
     pub fn init(dma: pac::DMA, rcc: &mut Rcc) -> Self {
         dma.init(rcc);
         Self { dma }
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            dma: unsafe { pac::DMA::steal() },
+        })
     }
 
     /// Get a handle to one of the 8 DMA channels (1..=8).
@@ -224,9 +246,18 @@ impl<const CH: u8> DmaChannel<CH> {
 
     /// Block until the transfer completes.
     pub fn wait(&self) {
-        while !self.is_complete() {
-            core::hint::spin_loop();
-        }
+        crate::spin::spin_wait("DMA transfer complete", || self.is_complete());
         self.clear_flags();
+    }
+
+    /// Wait for the transfer to complete, returning [`Error::Timeout`] if it
+    /// does not complete in time.
+    pub fn try_wait(&self) -> Result<(), Error> {
+        if crate::spin::try_spin_wait(|| self.is_complete()) {
+            self.clear_flags();
+            Ok(())
+        } else {
+            Err(Error::Timeout)
+        }
     }
 }

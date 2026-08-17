@@ -79,7 +79,8 @@ impl Delay {
         r.sr.write_bits(SR_CNTIF); // clear the count flag
         r.cmplr.write_bits(cycles);
         r.cmphr.write_bits(0);
-        r.ctlr.modify_bits(|v| v | CTLR_MODE | CTLR_DELAY | CTLR_STE);
+        r.ctlr
+            .modify_bits(|v| v | CTLR_MODE | CTLR_DELAY | CTLR_STE);
         while r.sr.read_bits() & SR_CNTIF == 0 {
             core::hint::spin_loop();
         }

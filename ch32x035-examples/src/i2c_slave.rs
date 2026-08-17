@@ -2,10 +2,11 @@
 //!
 //! Configures the CH32X035 as an I2C slave at address `0x50` using the
 //! blocking [`I2c1Slave`] driver; clock stretching (the default) pauses the
-//! bus while the slave handles each transaction. The I2C1 pins are **PB6**
-//! (SCL) and **PB7** (SDA), configured as alternate push-pull; the I2C
-//! peripheral switches them to open-drain automatically; connect external
-//! pull-ups (e.g. 4.7 kΩ to 3.3 V).
+//! bus while the slave handles each transaction. The I2C1 pins are **PC16**
+//! (SCL) and **PC17** (SDA) via I2C1 remap 2, configured as alternate
+//! push-pull; the I2C peripheral switches them to open-drain automatically;
+//! connect external pull-ups (e.g. 4.7 kΩ to 3.3 V). PC16/PC17 are bonded
+//! out on every CH32X035 package.
 //!
 //! With a second board running as I2C master:
 //! - master writes N bytes → they land in `rx[..N]`;
@@ -21,6 +22,7 @@
 
 use defmt_rtt as _;
 
+use ch32x035::afio::{Afio, I2c1Remap};
 use ch32x035::i2c::{I2c1Slave, Transfer};
 use ch32x035::{main, pac};
 use ch32x035_examples::board::Board;
@@ -33,16 +35,22 @@ fn main() -> ! {
         GPIOA,
         GPIOB,
         GPIOC,
+        AFIO,
         I2C1,
         ..
     } = dp;
 
     let mut board = Board::init(RCC, GPIOA, GPIOB, GPIOC);
 
-    // I2C1: SCL = PB6, SDA = PB7. The I2C peripheral switches these pins to
-    // open-drain automatically, so configure them as alternate push-pull.
-    let mut scl = board.pins.pb::<6>();
-    let mut sda = board.pins.pb::<7>();
+    // I2C1 remap 2: SCL = PC16, SDA = PC17. These pins exist on every
+    // CH32X035 package (unlike the PB6/PB7 the older example used). The I2C
+    // peripheral switches them to open-drain automatically, so configure
+    // them as alternate push-pull.
+    let mut afio = Afio::init(AFIO, &mut board.rcc);
+    afio.set_i2c1_remap(I2c1Remap::Remap2);
+
+    let mut scl = board.pins.pc::<16>();
+    let mut sda = board.pins.pc::<17>();
     scl.into_alt_push_pull();
     sda.into_alt_push_pull();
 

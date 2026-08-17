@@ -17,12 +17,57 @@ critical-section.workspace = true
 defmt = { workspace = true, optional = true }
 
 [features]
-default = ["defmt", "critical-section-impl", "panic-handler"]
+# Defaults to the largest LQFP64M part; consumers should select the
+# `ch32x035*` feature(s) for the package(s) they target. Sub-model features
+# are additive: selecting one gives exact pin gating, selecting several (or
+# `cargo check --all-features`) exposes their union, so diagnostic builds
+# still compile.
+default = ["defmt", "critical-section-impl", "panic-handler", "ch32x035r8t6"]
 defmt = ["dep:defmt"]
 critical-section-impl = []
 panic-handler = []
 run-from-ram = ["ch32x035-rt/run-from-ram"]
 
+# CH32X035 sub-model (package) selection.
+#
+# The CH32X035 is sold in several packages that bond out different subsets of
+# the 60 GPIO pins and different numbers of OPA/CMP blocks. Enable the
+# feature(s) for the package(s) you target; `Pins::pa`/`Pins::pb`/`Pins::pc`
+# then reject any pin bonded out on none of the selected packages at compile
+# time.
+#
+#   model          package  GPIO  OPA  CMP
+#   ch32x035r8t6   LQFP64M  60    2    3   (default)
+#   ch32x035c8t6   LQFP48   46    2    3
+#   ch32x035g8u6   QFN28    27    2    1
+#   ch32x035g8r6   QSOP28   26    2    3
+#   ch32x035f8u6   QFN20    19    2    0
+#   ch32x035f7p6   TSSOP20  18    1    1
+#   ch32x035d8u6   QFN12    11    1    0
+#
+# OPA1 exists on every package, so it is always available (there is no
+# `__opa1` flag); only OPA2 and the comparators vary, gated via the internal
+# `__opa2` / `__cmp*` features each sub-model implies below.
+ch32x035r8t6 = ["__opa2", "__cmp1", "__cmp2", "__cmp3"]
+ch32x035c8t6 = ["__opa2", "__cmp1", "__cmp2", "__cmp3"]
+ch32x035g8u6 = ["__opa2", "__cmp1"]
+ch32x035g8r6 = ["__opa2", "__cmp1", "__cmp2", "__cmp3"]
+ch32x035f8u6 = ["__opa2"]
+ch32x035f7p6 = ["__cmp1"]
+ch32x035d8u6 = []
+
+# Internal peripheral-capability flags, implied by the sub-model features
+# above. They are not meant to be enabled directly; they gate the OPA/CMP
+# driver methods in `opa`.
+#
+# OPA1 is present on all seven packages, so there is intentionally no
+# `__opa1` flag. `__opa2` gates the second op-amp; `__cmp1`..`__cmp3` gate
+# the comparators.
+__opa2 = []
+__cmp1 = []
+__cmp2 = []
+__cmp3 = []
+
 [package.metadata.docs.rs]
-features = ["defmt"]
+features = ["defmt", "ch32x035r8t6"]
 targets = ["riscv32imac-unknown-none-elf"]

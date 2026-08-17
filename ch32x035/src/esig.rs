@@ -13,6 +13,7 @@
 //! let flash_kb = esig.flash_size_kb();
 //! ```
 
+use crate::Steal;
 use crate::pac;
 
 /// Electronic signature driver
@@ -24,6 +25,19 @@ impl Esig {
     /// Create a new ESIG driver.
     pub fn new(esig: pac::ESIG) -> Self {
         Self { esig }
+    }
+
+    /// Obtain a handle without ownership checks.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the peripheral has been initialized and that no
+    /// data races occur.
+    #[inline]
+    pub unsafe fn steal() -> Steal<Self> {
+        Steal(Self {
+            esig: unsafe { pac::ESIG::steal() },
+        })
     }
 
     /// The 96-bit unique device identifier (three 32-bit words).
