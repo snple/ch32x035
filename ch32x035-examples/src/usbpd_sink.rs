@@ -16,8 +16,8 @@
 #![no_std]
 #![no_main]
 
-use defmt_rtt as _;
 use ch32x035_examples as _;
+use defmt_rtt as _;
 
 use ch32x035::gpio::Pins;
 use ch32x035::usbpd::{PdoType, Port, Request, Usbpd};
