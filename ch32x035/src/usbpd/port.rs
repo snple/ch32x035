@@ -11,8 +11,8 @@ use crate::delay::DelayUs;
 
 use super::phy::{SopType, Usbpd};
 use super::protocol::{
-    ControlMessage, ExtendedHeader, Header, MAX_CHUNK_DATA, MAX_EXTENDED_DATA, Message, PdError,
-    RxExtendedChunk, RxMessage, encode_extended_chunk, parse_extended_chunk,
+    CRC_LEN, ControlMessage, ExtendedHeader, Header, MAX_CHUNK_DATA, MAX_EXTENDED_DATA, Message,
+    PdError, RxExtendedChunk, RxMessage, encode_extended_chunk, parse_extended_chunk,
 };
 
 /// A USB PD link: a [`Usbpd`] transceiver plus the RX/TX DMA buffers.
@@ -137,9 +137,14 @@ impl Port {
     ) -> Option<RxExtendedChunk> {
         for _ in 0..timeout_ms {
             if self.phy.is_rx_complete() {
-                let len = self.phy.received_len() as usize;
+                // The PHY DMA buffer ends with the frame's 4-byte CRC (counted
+                // by `BMC_BYTE_CNT`); the protocol parser expects header + ext
+                // header + payload only, so strip the CRC before decoding.
+                let len = (self.phy.received_len() as usize)
+                    .min(self.rx.len())
+                    .saturating_sub(CRC_LEN);
                 self.phy.clear_all_flags();
-                let chunk = parse_extended_chunk(&self.rx[..len.min(self.rx.len())]);
+                let chunk = parse_extended_chunk(&self.rx[..len]);
                 self.start();
                 return chunk;
             }

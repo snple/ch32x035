@@ -21,6 +21,12 @@ pub const MAX_EXTENDED_DATA: usize = 260;
 /// Maximum number of chunks needed for the longest extended message.
 pub const MAX_CHUNKS: usize = MAX_EXTENDED_DATA / MAX_CHUNK_DATA;
 
+/// Length in bytes of the CRC-32 trailer the PHY appends to (and checks on)
+/// every frame. `BMC_BYTE_CNT` counts it, so when parsing a raw DMA buffer
+/// with a parser that expects header + data only (e.g.
+/// [`parse_extended_chunk`]) the CRC must be stripped first.
+pub const CRC_LEN: usize = 4;
+
 /// USB PD 16-bit message header.
 ///
 /// ```text
@@ -273,31 +279,51 @@ pub enum DataMessage {
 #[repr(u8)]
 pub enum ExtendedMsgType {
     /// Source_Capabilities_Extended
-    SourceCapabilitiesExtended = 0x03,
-    /// Security_Response
-    SecurityResponse = 0x04,
-    /// Get_Source_Capabilities_Extended
-    GetSourceCapabilitiesExtended = 0x05,
-    /// Get_Sink_Capabilities_Extended
-    GetSinkCapabilitiesExtended = 0x06,
+    SourceCapabilitiesExtended = 0x01,
+    /// Status
+    Status = 0x02,
+    /// Get_Battery_Cap
+    GetBatteryCap = 0x03,
+    /// Get_Battery_Status
+    GetBatteryStatus = 0x04,
+    /// Battery_Capabilities
+    BatteryCapabilities = 0x05,
+    /// Get_Manufacturer_Info
+    GetManufacturerInfo = 0x06,
     /// Manufacturer_Info
     ManufacturerInfo = 0x07,
-    /// EPR_Source_Capabilities (a list of EPR APDOs)
-    EprSourceCapabilities = 0x08,
-    /// EPR_Get_Info
-    EprGetInfo = 0x09,
-    /// EPR_Info
-    EprInfo = 0x0A,
-    /// Sink_Capabilities_Extended
-    SinkCapabilitiesExtended = 0x10,
-    /// Country_Codes
-    CountryCodes = 0x11,
+    /// Security_Request
+    SecurityRequest = 0x08,
+    /// Security_Response
+    SecurityResponse = 0x09,
+    /// Firmware_Update_Request
+    FirmwareUpdateRequest = 0x0A,
+    /// Firmware_Update_Response
+    FirmwareUpdateResponse = 0x0B,
+    /// PPS_Status
+    PpsStatus = 0x0C,
     /// Country_Info
-    CountryInfo = 0x12,
-    /// Source_Info_Extended
-    SourceInfoExtended = 0x13,
+    ///
+    /// ⚠ **Unverified value.** Follows the `usbpd` crate (USB PD 3.2), but the
+    /// classic PD 3.0 table lists `Country_Codes = 0x0D` / `Country_Info =
+    /// 0x0E` (this order is reversed). Not yet validated against a printed
+    /// spec or real captured frames — verify before relying on it.
+    CountryInfo = 0x0D,
+    /// Country_Codes
+    ///
+    /// ⚠ **Unverified value.** See [`Self::CountryInfo`] for the ordering
+    /// caveat.
+    CountryCodes = 0x0E,
+    /// Sink_Capabilities_Extended
+    SinkCapabilitiesExtended = 0x0F,
+    /// Extended_Control (e.g. the EPR Keep_Alive)
+    ExtendedControl = 0x10,
+    /// EPR_Source_Capabilities (a list of EPR APDOs)
+    EprSourceCapabilities = 0x11,
+    /// EPR_Sink_Capabilities
+    EprSinkCapabilities = 0x12,
     /// Vendor_Defined_Extended
-    VendorDefinedExtended = 0x1F,
+    VendorDefinedExtended = 0x1E,
 }
 
 /// USB PD extended-message header (16 bits, right after the message header).
