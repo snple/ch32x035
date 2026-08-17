@@ -17,12 +17,7 @@
 #![no_main]
 
 use defmt_rtt as _;
-
-/// defmt timestamp (see the examples `common` module).
-#[unsafe(export_name = "_defmt_timestamp")]
-fn defmt_timestamp() -> u64 {
-    0
-}
+use ch32x035_examples as _;
 
 use ch32x035::gpio::Pins;
 use ch32x035::usbpd::{Pdo, Port, Usbpd};
