@@ -72,7 +72,9 @@ const CTLR_MODE: u32 = 1 << 4;
 #[allow(dead_code)]
 const CTLR_SWIE: u32 = 1 << 31;
 
-/// SR bit: Count flag (set when CNT reaches CMP; write 1 to clear)
+/// SR bit: Count flag (set when CNT reaches CMP; cleared by writing 0, i.e.
+/// `SR &= ~(1<<0)` — the WCH timer uses a plain R/W status register, unlike
+/// the write-1-to-clear convention of the STM32/Cortex-M SysTick).
 const SR_CNTIF: u32 = 1 << 0;
 
 // =============================================================================
@@ -162,11 +164,12 @@ impl SYST {
 
     /// Clear the count flag
     ///
-    /// The flag (SR bit 0) is cleared by writing 1.
+    /// The flag (SR bit 0) is cleared by writing 0 (`SR &= ~(1<<0)`), matching
+    /// the WCH SDK `SysTick->SR &= ~(1<<0)` — NOT write-1-to-clear (STM32).
     #[inline]
     pub fn clear_flag(&mut self) {
         unsafe {
-            (*Self::PTR).sr.write_bits(SR_CNTIF);
+            (*Self::PTR).sr.modify_bits(|v| v & !SR_CNTIF);
         }
     }
 

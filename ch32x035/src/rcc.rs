@@ -392,12 +392,41 @@ impl Rcc {
     /// as requested. The CH32X035 has no PLL or clock-source switch, so the
     /// prescaler is the only frequency control available.
     pub fn freeze(&mut self, config: Config) -> Clocks {
+        // Enable the HSI oscillator and wait for it to be ready, matching the
+        // WCH SDK `SystemInit` (`RCC->CTLR |= HSION`, then wait HSIRDY).
+        // Without this the HPRE write below is applied against an unready or
+        // stale clock source, which glitches the core clock and hangs the CPU
+        // at power-on (observed: fine under a debugger reset, hangs on cold
+        // boot).
+        self.rcc.ctlr.set_hsion();
+        while !self.rcc.ctlr.hsirdy() {}
+
         if let Some(trim) = config.hsi_trim {
             self.rcc.ctlr.write_hsitrim(u32::from(trim) & 0x1F);
         }
         if let Some(mco) = config.mco {
             self.rcc.cfgr0.write_mco(mco.bits());
         }
+
+        // Configure the Flash wait states for the target HCLK BEFORE changing
+        // the AHB prescaler, mirroring ch32-hal `rcc/x0.rs` and the WCH SDK
+        // `SetSysClockTo48_HSI`. At power-on the Flash latency is left at the
+        // reset value (0 wait states); jumping straight to 48 MHz without
+        // raising it makes instruction fetch fail and the CPU hangs.
+        let hclk_hz = HSI_HZ / config.hclk.divisor();
+        let latency = if hclk_hz <= 12_000_000 {
+            0b00 // 0 wait states, 0..=12 MHz
+        } else if hclk_hz <= 24_000_000 {
+            0b01 // 1 wait state, 12..=24 MHz
+        } else {
+            0b10 // 2 wait states, 24..=48 MHz
+        };
+        unsafe {
+            let actlr = 0x4002_2000usize as *mut u32; // FLASH->ACTLR
+            let v = core::ptr::read_volatile(actlr);
+            core::ptr::write_volatile(actlr, (v & !0b11) | latency);
+        }
+
         self.rcc.cfgr0.write_hpre(config.hclk.bits());
 
         Clocks::new(self)

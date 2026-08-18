@@ -133,7 +133,7 @@ pub unsafe extern "C" fn Reset() -> ! {
         }
     }
 
-    // ── WCH core configuration (mirrors startup_ch32x035.S) ─────────────
+    // ── WCH core configuration (aligned with qingke-rt v4) ─────────────
     unsafe {
         // Configure pipelining and instruction prediction (WCH custom CSR 0xbc0)
         core::arch::asm!(
@@ -149,15 +149,19 @@ pub unsafe extern "C" fn Reset() -> ! {
             options(nomem, nostack, preserves_flags)
         );
 
-        // Enable global interrupts + previous-global flag
-        // (mstatus MIE | MPIE = 0x88, same as WCH `__enable_irq`)
+        // Set mstatus to machine mode (MPP=11), MPIE=1, MIE=0. Interrupts are
+        // intentionally left disabled here so that mtvec can be installed
+        // first: enabling MIE before the vector table is ready would let a
+        // pending interrupt (e.g. left behind by the Boot ROM at power-on)
+        // take a stale trap vector and hard-fault.
         core::arch::asm!(
             "csrw mstatus, {0}",
-            in(reg) 0x88_u32,
+            in(reg) 0x1880_u32,
             options(nomem, nostack, preserves_flags)
         );
 
-        // Point mtvec at the vector table in WCH vectored mode (mode = 3)
+        // Point mtvec at the vector table in WCH vectored mode (mode = 3).
+        // This MUST happen before global interrupts are enabled.
         let vector_table = &raw const __vector_table as u32;
         core::arch::asm!(
             "csrw mtvec, {0}",
@@ -167,6 +171,20 @@ pub unsafe extern "C" fn Reset() -> ! {
 
         // Ensure any copied code (.ramfunc) is visible to instruction fetch
         core::arch::asm!("fence.i", options(nomem, nostack, preserves_flags));
+
+        // Enable interrupts: MIE (mstatus bit 3) plus the WCH global
+        // interrupt gate gintenr (CSR 0x800, bit 3). mtvec is already valid,
+        // so any pending interrupt now dispatches through the vector table.
+        core::arch::asm!(
+            "csrs mstatus, {0}",
+            in(reg) 0x8_u32,
+            options(nomem, nostack, preserves_flags)
+        );
+        core::arch::asm!(
+            "csrs 0x800, {0}",
+            in(reg) 0x8_u32,
+            options(nomem, nostack, preserves_flags)
+        );
     }
 
     // Call user's main function
