@@ -56,6 +56,62 @@ Use a WCH-Link with `wchisp` (or the WCH OpenOCD toolchain):
 wchisp flash target/riscv32imac-unknown-none-elf/release/blink
 ```
 
+## Running examples with probe-rs
+
+The example crate is configured so `cargo run` flashes and runs via a WCH-Link
+(`probe-rs run --chip CH32X035F8U6`, see `ch32x035-examples/.cargo/config.toml`):
+
+```sh
+cd ch32x035-examples
+cargo run --bin blink
+```
+
+### Linux: udev permissions
+
+probe-rs needs read/write access to the probe's USB node. Install the official
+[probe-rs udev rules](https://probe.rs/files/69-probe-rs.rules) and add a rule
+for the WCH-Link (its RISC-V mode `1a86:8010` is already covered by the stock
+rules; the DAP mode `1a86:8012` is not):
+
+```
+# /etc/udev/rules.d/69-probe-rs.rules
+# WCH-Link (CH549 based, DAP mode)
+ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="8012", MODE="660", GROUP="plugdev", TAG+="uaccess"
+```
+
+Then reload the rules and make sure your user is in the `plugdev` group:
+
+```sh
+sudo udevadm control --reload && sudo udevadm trigger
+sudo usermod -a -G plugdev $USER   # log out and back in afterwards
+```
+
+### WCH-Link mode (RISC-V vs DAP)
+
+The WCH-Link has two modes. The CH32X035 is a RISC-V chip, so the probe must be
+in **RISC-V mode** (native WCH-Link protocol):
+
+| Mode      | USB ID             | `probe-rs list` shows        |
+|-----------|--------------------|------------------------------|
+| RISC-V    | `1a86:8010`        | `WCH-Link` (no suffix)       |
+| DAP (ARM) | `1a86:8012`        | `WCH-Link ... (CMSIS-DAP)`   |
+
+A probe left in DAP mode fails with `Failed to send the JTAG sequence` /
+`CMSIS-DAP responded with an error`. Check the current mode with:
+
+```sh
+probe-rs list
+```
+
+Switch to RISC-V mode with the **ModeS button**:
+
+1. Unplug the probe.
+2. Hold down the ModeS button.
+3. Plug it back in (power-on) while holding it.
+4. Short-press ModeS to cycle modes — RISC-V = blue LED **off** when idle,
+   DAP = blue LED **on** — then long-press ~2 s to confirm.
+5. Verify with `probe-rs list`: the entry should no longer show `(CMSIS-DAP)`.
+
 ## Key facts
 
 - **Core**: WCH QingKe V4C, RV32IMAC, single core, machine mode.
