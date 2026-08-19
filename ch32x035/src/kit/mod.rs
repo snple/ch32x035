@@ -7,5 +7,7 @@
 //! | Sub-module      | Purpose |
 //! |-----------------|---------|
 //! | [`ring_buffer`] | Fixed-capacity byte ring buffer for interrupt-driven I/O |
+//! | [`soft_i2c`]    | Bit-banged I2C master on arbitrary GPIO pins |
 
 pub mod ring_buffer;
+pub mod soft_i2c;

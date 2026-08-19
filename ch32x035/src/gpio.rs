@@ -34,6 +34,16 @@
 //! [`crate::package`]) and [`Pins::pa`]/[`Pins::pb`]/[`Pins::pc`] will only
 //! accept pins that physically exist on the chosen package, rejecting
 //! un-bonded pins at compile time.
+//!
+//! # Runtime-indexed access
+//!
+//! Like the rp2350 HAL, the [`get`], [`output`], [`set_high`], [`set_low`],
+//! [`toggle`], [`set`] and `into_*` free functions operate on a GPIO by a
+//! `(port, pin)` tuple instead of the compile-time [`Pin<PORT, N>`] type
+//! (`port`: 0 = A, 1 = B, 2 = C; `pin`: 0..=23). These are `unsafe`: the
+//! caller must ensure the ports are initialized and that no data races occur.
+//! The `(port, pin)` argument is validated against the selected package at
+//! runtime.
 
 use core::marker::PhantomData;
 
@@ -88,10 +98,10 @@ impl Pins {
     pub fn pa<const N: u32>(&self) -> Pin<0, N> {
         const {
             assert!(
-                crate::package::pa_available::<N>(),
-                "PA pin not bonded out on the selected CH32X035 package"
+                crate::package::pin_available::<0, N>(),
+                "PA pin is not bonded out on the selected CH32X035 package"
             );
-        };
+        }
         Pin::new()
     }
 
@@ -102,10 +112,10 @@ impl Pins {
     pub fn pb<const N: u32>(&self) -> Pin<1, N> {
         const {
             assert!(
-                crate::package::pb_available::<N>(),
-                "PB pin not bonded out on the selected CH32X035 package"
+                crate::package::pin_available::<1, N>(),
+                "PB pin is not bonded out on the selected CH32X035 package"
             );
-        };
+        }
         Pin::new()
     }
 
@@ -116,10 +126,10 @@ impl Pins {
     pub fn pc<const N: u32>(&self) -> Pin<2, N> {
         const {
             assert!(
-                crate::package::pc_available::<N>(),
-                "PC pin not bonded out on the selected CH32X035 package"
+                crate::package::pin_available::<2, N>(),
+                "PC pin is not bonded out on the selected CH32X035 package"
             );
-        };
+        }
         Pin::new()
     }
 }
@@ -146,11 +156,48 @@ impl<const PORT: u32, const N: u32> Pin<PORT, N> {
         PORT
     }
 
-    /// Create a new pin token (used internally by `Pins`)
+    /// Create a new pin token (used internally by `Pins`).
+    ///
+    /// Fails to compile if `(PORT, N)` is not bonded out on the selected
+    /// package.
     const fn new() -> Self {
+        const {
+            assert!(
+                crate::package::pin_available::<PORT, N>(),
+                "GPIO pin (port, n) is not bonded out on the selected CH32X035 package"
+            );
+        }
         Self {
             _marker: PhantomData,
         }
+    }
+
+    /// Obtain a `Pin<PORT, N>` handle without ownership checks.
+    ///
+    /// Useful in interrupt context, where the pins are owned by `main()` and
+    /// not accessible. The data-plane methods ([`set_high`](Self::set_high),
+    /// [`set_low`](Self::set_low), [`toggle`](Self::toggle), …) take `&self`,
+    /// so a stolen handle can drive the pin directly.
+    ///
+    /// Fails to compile if `(PORT, N)` is not bonded out on the selected
+    /// package.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure the GPIO ports have been initialized (e.g. via
+    /// [`Pins::init`]) and that no data races occur — i.e. the same pin is not
+    /// being reconfigured concurrently from another context.
+    #[inline]
+    pub const unsafe fn steal() -> Steal<Self> {
+        const {
+            assert!(
+                crate::package::pin_available::<PORT, N>(),
+                "GPIO pin (port, n) is not bonded out on the selected CH32X035 package"
+            );
+        }
+        Steal(Self {
+            _marker: PhantomData,
+        })
     }
 }
 
@@ -240,19 +287,19 @@ macro_rules! impl_pin {
 
                 /// Set the pin output high
                 #[inline(always)]
-                pub fn set_high(&mut self) {
+                pub fn set_high(&self) {
                     Self::regs().$bs.[<trigger_bs $n>]();
                 }
 
                 /// Set the pin output low
                 #[inline(always)]
-                pub fn set_low(&mut self) {
+                pub fn set_low(&self) {
                     Self::regs().$bs.[<trigger_br $n>]();
                 }
 
                 /// Toggle the pin output
                 #[inline(always)]
-                pub fn toggle(&mut self) {
+                pub fn toggle(&self) {
                     let regs = Self::regs();
                     if regs.outdr.[<odr $n>]() {
                         regs.outdr.[<clr_odr $n>]();
@@ -347,3 +394,292 @@ impl_pins_ext!(1, pac::gpiob::BASE, 16, 17, 18, 19, 20, 21);
 impl_pins_low!(2, pac::gpioc::BASE, 0, 1, 2, 3, 4, 5, 6, 7);
 impl_pins_high!(2, pac::gpioc::BASE, 14, 15);
 impl_pins_ext!(2, pac::gpioc::BASE, 16, 17, 18, 19);
+
+// =============================================================================
+// Runtime-indexed GPIO access (free functions)
+// =============================================================================
+//
+// Like the rp2350 HAL, these functions operate on a GPIO by a `(port, pin)`
+// tuple instead of the compile-time `Pin<PORT, N>` type.
+//
+// - `port`: 0 = A, 1 = B, 2 = C.
+// - `pin`: pin number within the port, 0..=23 (PA0..=PA23, PB0..=PB21,
+//   PC0..=PC7 and PC14..=PC19 are bonded out on some packages).
+//
+// # Safety
+//
+// Every function is `unsafe` because the caller must ensure the GPIO ports
+// have been initialized via [`Pins::init`] and that no concurrent
+// configuration changes happen while the operation is in flight. The
+// `(port, pin)` argument is range-checked and validated against the selected
+// package at runtime (panicking on an invalid pin).
+
+/// Register block of the given port (all ports share the same layout).
+#[inline]
+fn port_regs(port: u32) -> &'static pac::gpioa::RegisterBlock {
+    let base = match port {
+        0 => pac::gpioa::BASE,
+        1 => pac::gpiob::BASE,
+        2 => pac::gpioc::BASE,
+        _ => unreachable!("assert_pin guarantees port 0..=2"),
+    };
+    // SAFETY: `base` is a valid GPIO port base; the caller upholds the safety
+    // contract (ports initialized, no data races).
+    unsafe { &*(base as *const pac::gpioa::RegisterBlock) }
+}
+
+/// Assert that `(port, pin)` refers to a valid GPIO pin bonded out on the
+/// selected package.
+#[inline(always)]
+fn assert_pin(port: u32, pin: u32) {
+    assert!(
+        crate::package::pin_available_runtime(port, pin),
+        "GPIO (port {port}, pin {pin}) is not bonded out on the selected CH32X035 package"
+    );
+}
+
+/// Pointer to the CNF/MODE register of a port pin and its 4-bit field shift.
+#[inline]
+fn cfg_reg(regs: &'static pac::gpioa::RegisterBlock, idx: u32) -> (*mut u32, u32) {
+    match idx {
+        0..=7 => (regs.cfglr.as_ptr(), 4 * idx),
+        8..=15 => (regs.cfghr.as_ptr(), 4 * (idx - 8)),
+        _ => (regs.cfgxr.as_ptr(), 4 * (idx - 16)),
+    }
+}
+
+/// Set the CNF/MODE fields of a port pin (CFGLR/CFGHR/CFGXR, 4 bits each).
+#[inline]
+fn set_config(port: u32, idx: u32, cnf: u32, mode: u32) {
+    let (addr, bit) = cfg_reg(port_regs(port), idx);
+    // SAFETY: `addr` is a valid GPIO config register; the caller upholds the
+    // free-function safety contract.
+    unsafe {
+        let v = core::ptr::read_volatile(addr);
+        core::ptr::write_volatile(addr, (v & !(0xF << bit)) | ((mode | (cnf << 2)) << bit));
+    }
+}
+
+/// Atomically drive a port pin high (`high = true`) or low via BSHR/BSXR.
+#[inline]
+fn drive(port: u32, idx: u32, high: bool) {
+    let regs = port_regs(port);
+    let (addr, mask) = if idx < 16 {
+        (
+            regs.bshr.as_ptr(),
+            if high { 1 << idx } else { 1 << (idx + 16) },
+        )
+    } else {
+        let k = idx - 16;
+        (
+            regs.bsxr.as_ptr(),
+            if high { 1 << k } else { 1 << (16 + k) },
+        )
+    };
+    // SAFETY: `addr` is a valid set/reset register; the caller upholds the
+    // free-function safety contract.
+    unsafe { core::ptr::write_volatile(addr, mask) };
+}
+
+/// Read the live input value of a GPIO.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23). Returns `true` if the pin is high.
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn get(pin: (u32, u32)) -> bool {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    // SAFETY: valid GPIO input register; the caller upholds the safety contract.
+    unsafe { (core::ptr::read_volatile(port_regs(port).indr.as_ptr()) >> idx) & 1 != 0 }
+}
+
+/// Read the programmed output level of a GPIO (not the live pad state).
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn output(pin: (u32, u32)) -> bool {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    // SAFETY: valid GPIO output register; the caller upholds the safety contract.
+    unsafe { (core::ptr::read_volatile(port_regs(port).outdr.as_ptr()) >> idx) & 1 != 0 }
+}
+
+/// Drive a GPIO output high.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn set_high(pin: (u32, u32)) {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    drive(port, idx, true);
+}
+
+/// Drive a GPIO output low.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn set_low(pin: (u32, u32)) {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    drive(port, idx, false);
+}
+
+/// Toggle a GPIO output.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn toggle(pin: (u32, u32)) {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    // SAFETY: valid GPIO output register; the caller upholds the safety contract.
+    let high =
+        unsafe { (core::ptr::read_volatile(port_regs(port).outdr.as_ptr()) >> idx) & 1 != 0 };
+    drive(port, idx, !high);
+}
+
+/// Set a GPIO output to a specific level.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn set(pin: (u32, u32), high: bool) {
+    unsafe {
+        if high {
+            set_high(pin);
+        } else {
+            set_low(pin);
+        }
+    }
+}
+
+/// Configure a GPIO as a push-pull output.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn into_output(pin: (u32, u32)) {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    set_config(port, idx, CNF_OUTPUT_PUSHPULL, MODE_OUTPUT);
+}
+
+/// Configure a GPIO as an alternate-function push-pull output.
+///
+/// I2C and USB-PD automatically switch the driver to open-drain.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn into_alt_push_pull(pin: (u32, u32)) {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    set_config(port, idx, CNF_ALT_PUSHPULL, MODE_OUTPUT);
+}
+
+/// Configure a GPIO as a floating input.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn into_input(pin: (u32, u32)) {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    set_config(port, idx, CNF_INPUT_FLOATING, MODE_INPUT);
+}
+
+/// Configure a GPIO as a pull-up input.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn into_input_pullup(pin: (u32, u32)) {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    set_config(port, idx, CNF_INPUT_PULL, MODE_INPUT);
+    // SAFETY: valid GPIO output register; the caller upholds the safety contract.
+    unsafe {
+        let addr = port_regs(port).outdr.as_ptr();
+        core::ptr::write_volatile(addr, core::ptr::read_volatile(addr) | (1 << idx));
+    }
+}
+
+/// Configure a GPIO as a pull-down input.
+///
+/// Note: only PA0..=PA15 and PC16..=PC17 support a pull-down resistor.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn into_input_pulldown(pin: (u32, u32)) {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    set_config(port, idx, CNF_INPUT_PULL, MODE_INPUT);
+    // SAFETY: valid GPIO output register; the caller upholds the safety contract.
+    unsafe {
+        let addr = port_regs(port).outdr.as_ptr();
+        core::ptr::write_volatile(addr, core::ptr::read_volatile(addr) & !(1 << idx));
+    }
+}
+
+/// Configure a GPIO as an analog input.
+///
+/// `pin` is a `(port, pin)` tuple (`port`: 0 = A, 1 = B, 2 = C; `pin`:
+/// 0..=23).
+///
+/// # Safety
+///
+/// See the free-function safety contract above.
+#[inline]
+pub unsafe fn into_analog(pin: (u32, u32)) {
+    let (port, idx) = pin;
+    assert_pin(port, idx);
+    set_config(port, idx, CNF_INPUT_ANALOG, MODE_INPUT);
+}

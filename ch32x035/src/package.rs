@@ -117,9 +117,29 @@ pub const ADC_CHANNELS: u8 = if cfg!(feature = "ch32x035r8t6") {
     5
 };
 
-/// Whether `PA{n}` is bonded out on the selected package.
-pub const fn pa_available<const N: u32>() -> bool {
-    match N {
+/// Generates the compile-time (`const N`) and runtime (`pin`) availability
+/// checks for one port. Both share the same `match` body, so the pin lists
+/// cannot drift.
+macro_rules! impl_availability {
+    ($const_doc:expr, $runtime_doc:expr, $const_name:ident, $runtime_name:ident, $body:tt) => {
+        #[doc = $const_doc]
+        pub const fn $const_name<const N: u32>() -> bool {
+            match N $body
+        }
+
+        #[doc = $runtime_doc]
+        pub fn $runtime_name(pin: u32) -> bool {
+            match pin $body
+        }
+    };
+}
+
+impl_availability!(
+    "Whether `PA{n}` is bonded out on the selected package (compile-time version).",
+    "Whether `PA{pin}` is bonded out on the selected package (runtime version).",
+    pa_available,
+    pa_available_runtime,
+    {
         0 | 1 | 4 => any_model!(
             "ch32x035r8t6",
             "ch32x035c8t6",
@@ -141,11 +161,14 @@ pub const fn pa_available<const N: u32>() -> bool {
         12 | 13 => any_model!("ch32x035r8t6", "ch32x035c8t6", "ch32x035g8r6"),
         _ => false,
     }
-}
+);
 
-/// Whether `PB{n}` is bonded out on the selected package.
-pub const fn pb_available<const N: u32>() -> bool {
-    match N {
+impl_availability!(
+    "Whether `PB{n}` is bonded out on the selected package (compile-time version).",
+    "Whether `PB{pin}` is bonded out on the selected package (runtime version).",
+    pb_available,
+    pb_available_runtime,
+    {
         0 => any_model!(
             "ch32x035r8t6",
             "ch32x035c8t6",
@@ -194,13 +217,14 @@ pub const fn pb_available<const N: u32>() -> bool {
         14..=21 => any_model!("ch32x035r8t6"),
         _ => false,
     }
-}
+);
 
-/// Whether `PC{n}` is bonded out on the selected package.
-///
-/// PC8..=PC13 and PC20+ are never bonded out on any package.
-pub const fn pc_available<const N: u32>() -> bool {
-    match N {
+impl_availability!(
+    "Whether `PC{n}` is bonded out on the selected package (compile-time version).\n\nPC8..=PC13 and PC20+ are never bonded out on any package.",
+    "Whether `PC{pin}` is bonded out on the selected package (runtime version).\n\nPC8..=PC13 and PC20+ are never bonded out on any package.",
+    pc_available,
+    pc_available_runtime,
+    {
         0 => any_model!("ch32x035r8t6", "ch32x035g8u6"),
         1 => any_model!("ch32x035r8t6", "ch32x035f7p6"),
         2 => any_model!("ch32x035r8t6"),
@@ -221,6 +245,32 @@ pub const fn pc_available<const N: u32>() -> bool {
             "ch32x035f7p6",
             "ch32x035d8u6"
         ),
+        _ => false,
+    }
+);
+
+/// Whether the pin at `(PORT, N)` is bonded out on the selected package.
+///
+/// `PORT`: 0 = A, 1 = B, 2 = C. Compile-time (const generic) version; see
+/// [`pin_available_runtime`] for the runtime form.
+pub const fn pin_available<const PORT: u32, const N: u32>() -> bool {
+    match PORT {
+        0 => pa_available::<N>(),
+        1 => pb_available::<N>(),
+        2 => pc_available::<N>(),
+        _ => false,
+    }
+}
+
+/// Whether the pin at `(port, pin)` is bonded out on the selected package.
+///
+/// `port`: 0 = A, 1 = B, 2 = C; `pin`: pin number 0..=23. Runtime version of
+/// [`pin_available`], used by the runtime-indexed GPIO free functions.
+pub fn pin_available_runtime(port: u32, pin: u32) -> bool {
+    match port {
+        0 => pa_available_runtime(pin),
+        1 => pb_available_runtime(pin),
+        2 => pc_available_runtime(pin),
         _ => false,
     }
 }
