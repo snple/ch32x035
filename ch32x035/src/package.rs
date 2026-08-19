@@ -123,6 +123,7 @@ pub const ADC_CHANNELS: u8 = if cfg!(feature = "ch32x035r8t6") {
 macro_rules! impl_availability {
     ($const_doc:expr, $runtime_doc:expr, $const_name:ident, $runtime_name:ident, $body:tt) => {
         #[doc = $const_doc]
+        #[inline]
         pub const fn $const_name<const N: u32>() -> bool {
             match N $body
         }
@@ -253,6 +254,7 @@ impl_availability!(
 ///
 /// `PORT`: 0 = A, 1 = B, 2 = C. Compile-time (const generic) version; see
 /// [`pin_available_runtime`] for the runtime form.
+#[inline]
 pub const fn pin_available<const PORT: u32, const N: u32>() -> bool {
     match PORT {
         0 => pa_available::<N>(),

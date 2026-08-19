@@ -11,11 +11,13 @@ pub struct Duration {
 
 impl Duration {
     /// Create a duration from a number of microseconds
+    #[inline]
     pub const fn from_micros(micros: u64) -> Self {
         Self { micros }
     }
 
     /// Create a duration from a number of milliseconds
+    #[inline]
     pub const fn from_millis(millis: u64) -> Self {
         Self {
             micros: millis * 1000,
@@ -23,6 +25,7 @@ impl Duration {
     }
 
     /// Create a duration from a number of seconds
+    #[inline]
     pub const fn from_secs(secs: u64) -> Self {
         Self {
             micros: secs * 1_000_000,
@@ -30,6 +33,7 @@ impl Duration {
     }
 
     /// Create a duration from a frequency in Hz (period = 1/freq)
+    #[inline]
     pub const fn from_hz(hz: u64) -> Self {
         Self {
             micros: 1_000_000 / hz,
@@ -37,21 +41,25 @@ impl Duration {
     }
 
     /// The duration in microseconds
+    #[inline]
     pub const fn as_micros(&self) -> u64 {
         self.micros
     }
 
     /// The duration in milliseconds (rounded down)
+    #[inline]
     pub const fn as_millis(&self) -> u64 {
         self.micros / 1000
     }
 
     /// The duration in seconds (rounded down)
+    #[inline]
     pub const fn as_secs(&self) -> u64 {
         self.micros / 1_000_000
     }
 
     /// Checked addition
+    #[inline]
     pub const fn checked_add(self, rhs: Duration) -> Option<Duration> {
         match self.micros.checked_add(rhs.micros) {
             Some(micros) => Some(Duration { micros }),
@@ -60,6 +68,7 @@ impl Duration {
     }
 
     /// Saturating addition
+    #[inline]
     pub const fn saturating_add(self, rhs: Duration) -> Duration {
         match self.checked_add(rhs) {
             Some(d) => d,
@@ -68,6 +77,7 @@ impl Duration {
     }
 
     /// Checked subtraction
+    #[inline]
     pub const fn checked_sub(self, rhs: Duration) -> Option<Duration> {
         match self.micros.checked_sub(rhs.micros) {
             Some(micros) => Some(Duration { micros }),
@@ -76,6 +86,7 @@ impl Duration {
     }
 
     /// Saturating subtraction
+    #[inline]
     pub const fn saturating_sub(self, rhs: Duration) -> Duration {
         match self.checked_sub(rhs) {
             Some(d) => d,
@@ -86,6 +97,7 @@ impl Duration {
 
 impl core::ops::Add for Duration {
     type Output = Duration;
+    #[inline]
     fn add(self, rhs: Duration) -> Duration {
         Duration {
             micros: self.micros + rhs.micros,
@@ -95,6 +107,7 @@ impl core::ops::Add for Duration {
 
 impl core::ops::Sub for Duration {
     type Output = Duration;
+    #[inline]
     fn sub(self, rhs: Duration) -> Duration {
         Duration {
             micros: self.micros - rhs.micros,
@@ -103,12 +116,14 @@ impl core::ops::Sub for Duration {
 }
 
 impl core::ops::AddAssign for Duration {
+    #[inline]
     fn add_assign(&mut self, rhs: Duration) {
         self.micros += rhs.micros;
     }
 }
 
 impl core::ops::SubAssign for Duration {
+    #[inline]
     fn sub_assign(&mut self, rhs: Duration) {
         self.micros -= rhs.micros;
     }
@@ -122,16 +137,19 @@ pub struct Instant {
 
 impl Instant {
     /// Create an instant from a microsecond counter value
+    #[inline]
     pub const fn from_micros(micros: u64) -> Self {
         Self { micros }
     }
 
     /// The instant's microsecond counter value
+    #[inline]
     pub const fn as_micros(&self) -> u64 {
         self.micros
     }
 
     /// The duration elapsed since this instant
+    #[inline]
     pub fn elapsed(&self) -> Duration {
         // The CH32X035 is single-core; a global instant source is provided by
         // the caller (e.g. a SysTick tick counter).
@@ -139,11 +157,13 @@ impl Instant {
     }
 
     /// The duration between this instant and a later one
+    #[inline]
     pub fn duration_since(&self, earlier: Instant) -> Duration {
         Duration::from_micros(self.micros.saturating_sub(earlier.micros))
     }
 
     /// Checked addition of a duration
+    #[inline]
     pub fn checked_add(&self, duration: Duration) -> Option<Instant> {
         self.micros
             .checked_add(duration.micros)
@@ -151,6 +171,7 @@ impl Instant {
     }
 
     /// Checked subtraction of a duration
+    #[inline]
     pub fn checked_sub(&self, duration: Duration) -> Option<Instant> {
         self.micros
             .checked_sub(duration.micros)
@@ -160,6 +181,7 @@ impl Instant {
 
 impl core::ops::Add<Duration> for Instant {
     type Output = Instant;
+    #[inline]
     fn add(self, rhs: Duration) -> Instant {
         Instant {
             micros: self.micros + rhs.micros,
@@ -169,6 +191,7 @@ impl core::ops::Add<Duration> for Instant {
 
 impl core::ops::Sub<Duration> for Instant {
     type Output = Instant;
+    #[inline]
     fn sub(self, rhs: Duration) -> Instant {
         Instant {
             micros: self.micros - rhs.micros,
@@ -178,6 +201,7 @@ impl core::ops::Sub<Duration> for Instant {
 
 impl core::ops::Sub for Instant {
     type Output = Duration;
+    #[inline]
     fn sub(self, rhs: Instant) -> Duration {
         Duration::from_micros(self.micros - rhs.micros)
     }

@@ -35,6 +35,7 @@ pub enum ExtiPort {
 }
 
 impl ExtiPort {
+    #[inline]
     const fn bits(self) -> u32 {
         match self {
             ExtiPort::PortA => 0b00,
@@ -249,46 +250,55 @@ impl Afio {
     }
 
     /// Set the SPI1 pin remapping.
+    #[inline(always)]
     pub fn set_spi1_remap(&mut self, remap: Spi1Remap) {
         self.afio.pcfr1.write_spi1rm(remap as u32);
     }
 
     /// Set the I2C1 pin remapping.
+    #[inline(always)]
     pub fn set_i2c1_remap(&mut self, remap: I2c1Remap) {
         self.afio.pcfr1.write_i2c1rm(remap as u32);
     }
 
     /// Set the USART1 pin remapping.
+    #[inline(always)]
     pub fn set_usart1_remap(&mut self, remap: Usart1Remap) {
         self.afio.pcfr1.write_usart1rm(remap as u32);
     }
 
     /// Set the USART2 pin remapping.
+    #[inline(always)]
     pub fn set_usart2_remap(&mut self, remap: Usart2Remap) {
         self.afio.pcfr1.write_usart2rm(remap as u32);
     }
 
     /// Set the USART3 pin remapping.
+    #[inline(always)]
     pub fn set_usart3_remap(&mut self, remap: Usart3Remap) {
         self.afio.pcfr1.write_usart3rm(remap as u32);
     }
 
     /// Set the USART4 pin remapping.
+    #[inline(always)]
     pub fn set_usart4_remap(&mut self, remap: Usart4Remap) {
         self.afio.pcfr1.write_usart4rm(remap as u32);
     }
 
     /// Set the TIM1 pin remapping.
+    #[inline(always)]
     pub fn set_tim1_remap(&mut self, remap: Tim1Remap) {
         self.afio.pcfr1.write_tim1rm(remap as u32);
     }
 
     /// Set the TIM2 pin remapping.
+    #[inline(always)]
     pub fn set_tim2_remap(&mut self, remap: Tim2Remap) {
         self.afio.pcfr1.write_tim2rm(remap as u32);
     }
 
     /// Set the TIM3 pin remapping.
+    #[inline(always)]
     pub fn set_tim3_remap(&mut self, remap: Tim3Remap) {
         self.afio.pcfr1.write_tim3rm(remap as u32);
     }
@@ -308,6 +318,7 @@ impl Afio {
     /// The SWD pins are enabled as the debug port after reset; passing
     /// `true` releases them, `false` keeps the debug port. This cannot be
     /// undone without a reset.
+    #[inline(always)]
     pub fn set_swd_disabled(&mut self, disabled: bool) {
         // 0xx = SWD enabled, 100 = SWD disabled (GPIO), others invalid.
         self.afio
@@ -318,18 +329,21 @@ impl Afio {
     /// Configure the USB-PD PHY (high-threshold input + 3.3 V PHY limit).
     ///
     /// Recommended before using [`crate::usbpd`].
+    #[inline(always)]
     pub fn configure_pd_phy(&mut self) {
         self.afio.ctlr.set_usbpd_in_hvt();
         self.afio.ctlr.set_usbpd_phy_v33();
     }
 
     /// Enable the USB FS PHY (for [`crate::pac::USBFS`]).
+    #[inline(always)]
     pub fn configure_usb_phy(&mut self) {
         self.afio.ctlr.set_usb_ioen();
         self.afio.ctlr.set_usb_phy_v33();
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::AFIO {
         self.afio
     }

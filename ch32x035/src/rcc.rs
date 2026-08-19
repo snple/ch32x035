@@ -139,6 +139,7 @@ pub enum HclkPrescaler {
 
 impl HclkPrescaler {
     /// Raw `HPRE` field value written to `CFGR0`.
+    #[inline]
     pub const fn bits(self) -> u32 {
         match self {
             Self::Div1 => 0b0000,
@@ -158,6 +159,7 @@ impl HclkPrescaler {
     }
 
     /// Clock divisor as an integer.
+    #[inline]
     pub const fn divisor(self) -> u32 {
         match self {
             Self::Div1 => 1,
@@ -181,6 +183,7 @@ impl HclkPrescaler {
     /// Encodings `0b1000`..`0b1010` are reserved but alias the power-of-two
     /// prescalers; they are mapped to their effective divisor so that reading
     /// back the register always yields a correct frequency.
+    #[inline]
     pub const fn from_bits(bits: u32) -> Self {
         match bits & 0xF {
             0b0000 => Self::Div1,
@@ -217,6 +220,7 @@ pub enum McoSource {
 
 impl McoSource {
     /// Raw `MCO` field value written to `CFGR0`.
+    #[inline]
     pub const fn bits(self) -> u32 {
         match self {
             Self::NoClock => 0b000,
@@ -266,6 +270,7 @@ pub const HSI_HZ: u32 = 48_000_000;
 
 impl Rcc {
     /// Create a new RCC driver, consuming the RCC peripheral.
+    #[inline]
     pub fn new(rcc: pac::RCC) -> Self {
         Self { rcc }
     }
@@ -283,11 +288,13 @@ impl Rcc {
     }
 
     /// Get a reference to the raw RCC register block
+    #[inline(always)]
     pub fn regs(&self) -> &pac::rcc::RegisterBlock {
         &self.rcc
     }
 
     /// Consume the driver and return the underlying peripheral
+    #[inline(always)]
     pub fn release(self) -> pac::RCC {
         self.rcc
     }
@@ -297,6 +304,7 @@ impl Rcc {
     // =====================================================================
 
     /// Enable clocks for the given APB2 peripherals
+    #[inline]
     pub fn apb2_enable<I: Into<BitFlags<Apb2Periph>>>(&mut self, periphs: I) {
         self.rcc
             .apb2pcenr
@@ -304,6 +312,7 @@ impl Rcc {
     }
 
     /// Disable clocks for the given APB2 peripherals
+    #[inline]
     pub fn apb2_disable<I: Into<BitFlags<Apb2Periph>>>(&mut self, periphs: I) {
         self.rcc
             .apb2pcenr
@@ -311,6 +320,7 @@ impl Rcc {
     }
 
     /// Assert reset for the given APB2 peripherals
+    #[inline]
     pub fn apb2_reset<I: Into<BitFlags<Apb2Periph>>>(&mut self, periphs: I) {
         self.rcc
             .apb2prstr
@@ -318,6 +328,7 @@ impl Rcc {
     }
 
     /// Release reset for the given APB2 peripherals
+    #[inline]
     pub fn apb2_clear_reset<I: Into<BitFlags<Apb2Periph>>>(&mut self, periphs: I) {
         self.rcc
             .apb2prstr
@@ -329,6 +340,7 @@ impl Rcc {
     // =====================================================================
 
     /// Enable clocks for the given APB1 peripherals
+    #[inline]
     pub fn apb1_enable<I: Into<BitFlags<Apb1Periph>>>(&mut self, periphs: I) {
         self.rcc
             .apb1pcenr
@@ -336,6 +348,7 @@ impl Rcc {
     }
 
     /// Disable clocks for the given APB1 peripherals
+    #[inline]
     pub fn apb1_disable<I: Into<BitFlags<Apb1Periph>>>(&mut self, periphs: I) {
         self.rcc
             .apb1pcenr
@@ -343,6 +356,7 @@ impl Rcc {
     }
 
     /// Assert reset for the given APB1 peripherals
+    #[inline]
     pub fn apb1_reset<I: Into<BitFlags<Apb1Periph>>>(&mut self, periphs: I) {
         self.rcc
             .apb1prstr
@@ -350,6 +364,7 @@ impl Rcc {
     }
 
     /// Release reset for the given APB1 peripherals
+    #[inline]
     pub fn apb1_clear_reset<I: Into<BitFlags<Apb1Periph>>>(&mut self, periphs: I) {
         self.rcc
             .apb1prstr
@@ -361,11 +376,13 @@ impl Rcc {
     // =====================================================================
 
     /// Enable clocks for the given AHB peripherals
+    #[inline]
     pub fn ahb_enable<I: Into<BitFlags<AhbPeriph>>>(&mut self, periphs: I) {
         self.rcc.ahbpcenr.modify_bits(|v| v | periphs.into().bits());
     }
 
     /// Disable clocks for the given AHB peripherals
+    #[inline]
     pub fn ahb_disable<I: Into<BitFlags<AhbPeriph>>>(&mut self, periphs: I) {
         self.rcc
             .ahbpcenr
@@ -373,11 +390,13 @@ impl Rcc {
     }
 
     /// Assert reset for the given AHB peripherals
+    #[inline]
     pub fn ahb_reset<I: Into<BitFlags<AhbReset>>>(&mut self, periphs: I) {
         self.rcc.ahbrstr.modify_bits(|v| v | periphs.into().bits());
     }
 
     /// Release reset for the given AHB peripherals
+    #[inline]
     pub fn ahb_clear_reset<I: Into<BitFlags<AhbReset>>>(&mut self, periphs: I) {
         self.rcc.ahbrstr.modify_bits(|v| v & !periphs.into().bits());
     }
@@ -433,6 +452,7 @@ impl Rcc {
     }
 
     /// Read the currently configured AHB prescaler.
+    #[inline(always)]
     pub fn hclk_prescaler(&self) -> HclkPrescaler {
         HclkPrescaler::from_bits(self.rcc.cfgr0.hpre())
     }
@@ -444,6 +464,7 @@ impl Clocks {
     /// The system clock is the 48 MHz HSI divided by the AHB prescaler
     /// (`HPRE`). `APB1` and `APB2` run at the same frequency (the CH32X035
     /// has no APB prescalers).
+    #[inline]
     pub fn new(rcc: &Rcc) -> Self {
         Self {
             sysclk_hz: HSI_HZ / rcc.hclk_prescaler().divisor(),
@@ -469,26 +490,31 @@ impl Clocks {
     /// Create a `Clocks` with an explicit system clock frequency (Hz).
     ///
     /// Use this if you configure the prescaler via raw register access.
+    #[inline(always)]
     pub fn from_frequency(sysclk_hz: u32) -> Self {
         Self { sysclk_hz }
     }
 
     /// The system (core) clock frequency in Hz
+    #[inline(always)]
     pub fn sysclk_hz(&self) -> u32 {
         self.sysclk_hz
     }
 
     /// The AHB (HCLK) clock frequency in Hz (equal to SYSCLK on the CH32X035)
+    #[inline(always)]
     pub fn hclk_hz(&self) -> u32 {
         self.sysclk_hz
     }
 
     /// The APB1 clock frequency in Hz (equal to SYSCLK on the CH32X035)
+    #[inline(always)]
     pub fn apb1_hz(&self) -> u32 {
         self.sysclk_hz
     }
 
     /// The APB2 clock frequency in Hz (equal to SYSCLK on the CH32X035)
+    #[inline(always)]
     pub fn apb2_hz(&self) -> u32 {
         self.sysclk_hz
     }

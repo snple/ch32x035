@@ -43,26 +43,31 @@ pub struct Header(u16);
 
 impl Header {
     /// An empty header (all fields zero).
+    #[inline]
     pub const fn new() -> Self {
         Self(0)
     }
 
     /// Build a header from raw 16-bit value.
+    #[inline]
     pub const fn from_bits(bits: u16) -> Self {
         Self(bits)
     }
 
     /// The raw 16-bit header value.
+    #[inline]
     pub const fn bits(self) -> u16 {
         self.0
     }
 
     /// Message type (`bit[4:0]`).
+    #[inline]
     pub const fn message_type(self) -> u8 {
         (self.0 & 0x1F) as u8
     }
 
     /// Port data role (`bit5`).
+    #[inline]
     pub const fn port_data_role(self) -> DataRole {
         if self.0 & 0x20 != 0 {
             DataRole::Dfp
@@ -72,6 +77,7 @@ impl Header {
     }
 
     /// Specification revision (`bit[7:6]`).
+    #[inline]
     pub const fn spec_revision(self) -> SpecRev {
         match (self.0 >> 6) & 0x3 {
             0 => SpecRev::Rev1_0,
@@ -81,6 +87,7 @@ impl Header {
     }
 
     /// Port power role (`bit8`).
+    #[inline]
     pub const fn port_power_role(self) -> PowerRole {
         if self.0 & 0x100 != 0 {
             PowerRole::Source
@@ -90,51 +97,61 @@ impl Header {
     }
 
     /// Message ID (`bit[11:9]`, 0..=7).
+    #[inline]
     pub const fn message_id(self) -> u8 {
         ((self.0 >> 9) & 0x7) as u8
     }
 
     /// Number of data objects (`bit[14:12]`, 0..=7).
+    #[inline]
     pub const fn num_data_objects(self) -> u8 {
         ((self.0 >> 12) & 0x7) as u8
     }
 
     /// Extended bit (`bit15`).
+    #[inline]
     pub const fn extended(self) -> bool {
         self.0 & 0x8000 != 0
     }
 
     /// Set the message type (`bit[4:0]`).
+    #[inline]
     pub const fn with_message_type(self, v: u8) -> Self {
         Self((self.0 & !0x1F) | (v as u16 & 0x1F))
     }
 
     /// Set the port data role (`bit5`).
+    #[inline]
     pub const fn with_port_data_role(self, v: DataRole) -> Self {
         Self((self.0 & !0x20) | ((v as u16) << 5))
     }
 
     /// Set the specification revision (`bit[7:6]`).
+    #[inline]
     pub const fn with_spec_revision(self, v: SpecRev) -> Self {
         Self((self.0 & !0xC0) | ((v as u16) << 6))
     }
 
     /// Set the port power role (`bit8`).
+    #[inline]
     pub const fn with_port_power_role(self, v: PowerRole) -> Self {
         Self((self.0 & !0x100) | ((v as u16) << 8))
     }
 
     /// Set the message ID (`bit[11:9]`, masked to 0..=7).
+    #[inline]
     pub const fn with_message_id(self, v: u8) -> Self {
         Self((self.0 & !0x0E00) | (((v as u16) & 0x7) << 9))
     }
 
     /// Set the number of data objects (`bit[14:12]`, masked to 0..=7).
+    #[inline]
     pub const fn with_num_data_objects(self, v: u8) -> Self {
         Self((self.0 & !0x7000) | (((v as u16) & 0x7) << 12))
     }
 
     /// Set the extended bit (`bit15`).
+    #[inline]
     pub const fn with_extended(self, v: bool) -> Self {
         if v {
             Self(self.0 | 0x8000)
@@ -340,46 +357,55 @@ pub struct ExtendedHeader(u16);
 
 impl ExtendedHeader {
     /// Build an extended header for `data_size` payload bytes.
+    #[inline]
     pub const fn new(data_size: u16) -> Self {
         Self(data_size & 0x1FF)
     }
 
     /// Build an extended header from a raw 16-bit value.
+    #[inline]
     pub const fn from_bits(bits: u16) -> Self {
         Self(bits)
     }
 
     /// The raw 16-bit extended-header value.
+    #[inline]
     pub const fn bits(self) -> u16 {
         self.0
     }
 
     /// Total payload size in bytes (bits `[8:0]`).
+    #[inline]
     pub const fn data_size(self) -> u16 {
         self.0 & 0x1FF
     }
 
     /// Request-chunk flag (bit10).
+    #[inline]
     pub const fn request_chunk(self) -> bool {
         self.0 & (1 << 10) != 0
     }
 
     /// Chunk number (bits `[14:11]`, 0..=15).
+    #[inline]
     pub const fn chunk_number(self) -> u8 {
         ((self.0 >> 11) & 0xF) as u8
     }
 
     /// Chunked flag (bit15): 1 = more chunks follow.
+    #[inline]
     pub const fn chunked(self) -> bool {
         self.0 & 0x8000 != 0
     }
 
     /// Set the payload size (bits `[8:0]`).
+    #[inline]
     pub const fn with_data_size(self, v: u16) -> Self {
         Self((self.0 & !0x1FF) | (v & 0x1FF))
     }
 
     /// Set the request-chunk flag (bit10).
+    #[inline]
     pub const fn with_request_chunk(self, v: bool) -> Self {
         if v {
             Self(self.0 | (1 << 10))
@@ -389,11 +415,13 @@ impl ExtendedHeader {
     }
 
     /// Set the chunk number (bits `[14:11]`).
+    #[inline]
     pub const fn with_chunk_number(self, v: u8) -> Self {
         Self((self.0 & !(0xF << 11)) | (((v as u16) & 0xF) << 11))
     }
 
     /// Set the chunked flag (bit15).
+    #[inline]
     pub const fn with_chunked(self, v: bool) -> Self {
         if v {
             Self(self.0 | 0x8000)
@@ -440,6 +468,7 @@ pub struct Message {
 
 impl Message {
     /// A control message (no data objects).
+    #[inline]
     pub const fn control(
         msg_type: ControlMessage,
         power: PowerRole,
@@ -487,11 +516,13 @@ impl Message {
 
     /// The message header (its number-of-objects field is filled in by
     /// [`encode`](Self::encode)).
+    #[inline]
     pub const fn header(&self) -> Header {
         self.header
     }
 
     /// The data objects carried by the message.
+    #[inline(always)]
     pub fn objects(&self) -> &[u32] {
         &self.objects[..self.num_objects as usize]
     }
@@ -535,16 +566,19 @@ pub struct RxMessage {
 
 impl RxMessage {
     /// The parsed message header.
+    #[inline]
     pub const fn header(&self) -> Header {
         self.header
     }
 
     /// Number of data objects in the message.
+    #[inline]
     pub const fn num_data_objects(&self) -> u8 {
         self.num_objects
     }
 
     /// The data objects of the message.
+    #[inline(always)]
     pub fn objects(&self) -> &[u32] {
         &self.objects[..self.num_objects as usize]
     }
@@ -552,6 +586,7 @@ impl RxMessage {
     /// Read the `i`-th data object.
     ///
     /// Panics if `i >= num_data_objects()`.
+    #[inline(always)]
     pub fn object(&self, i: usize) -> u32 {
         self.objects[i]
     }
@@ -631,16 +666,19 @@ pub struct RxExtendedChunk {
 
 impl RxExtendedChunk {
     /// The parsed message header.
+    #[inline]
     pub const fn header(&self) -> Header {
         self.header
     }
 
     /// The parsed extended header (chunk number / chunked / data size).
+    #[inline]
     pub const fn extended_header(&self) -> ExtendedHeader {
         self.ext_header
     }
 
     /// The chunk's data bytes (everything after the two headers).
+    #[inline(always)]
     pub fn data(&self) -> &[u8] {
         &self.data[..self.data_len as usize]
     }
@@ -704,6 +742,7 @@ pub struct ChunkedAssembler {
 
 impl ChunkedAssembler {
     /// An idle assembler (nothing in progress).
+    #[inline]
     pub const fn new() -> Self {
         Self {
             buf: [0; MAX_EXTENDED_DATA],
@@ -725,11 +764,13 @@ impl ChunkedAssembler {
     }
 
     /// Whether a message is being assembled.
+    #[inline]
     pub const fn is_in_progress(&self) -> bool {
         self.in_progress
     }
 
     /// The extended message type being assembled (after the first chunk).
+    #[inline]
     pub const fn message_type(&self) -> Option<u8> {
         self.msg_type
     }
@@ -778,6 +819,7 @@ impl ChunkedAssembler {
 
     /// The assembled payload (valid after [`push`](Self::push) returns
     /// `Ok(true)`).
+    #[inline(always)]
     pub fn data(&self) -> &[u8] {
         &self.buf[..self.len]
     }
@@ -810,11 +852,13 @@ pub struct Pdo(u32);
 
 impl Pdo {
     /// Build a PDO from its raw 32-bit value.
+    #[inline]
     pub const fn from_bits(bits: u32) -> Self {
         Self(bits)
     }
 
     /// The raw 32-bit PDO value.
+    #[inline]
     pub const fn bits(self) -> u32 {
         self.0
     }
@@ -825,6 +869,7 @@ impl Pdo {
     ///
     /// Debug builds panic if `voltage_mv` (50 mV units) or `max_current_ma`
     /// (10 mA units) overflow their fields.
+    #[inline]
     pub const fn fixed(voltage_mv: u16, max_current_ma: u16) -> Self {
         let v = (voltage_mv / 50) as u32 & 0x3FF;
         let i = (max_current_ma / 10) as u32 & 0x3FF;
@@ -838,6 +883,7 @@ impl Pdo {
     /// The voltage range is fixed at 9–20 V; the two fields hold the maximum
     /// current in the 9–15 V band (bits `[19:10]`, 10 mA units) and the
     /// 15–20 V band (bits `[9:0]`, 10 mA units).
+    #[inline]
     pub const fn spr_avs(current_9_15v_ma: u16, current_15_20v_ma: u16) -> Self {
         let c1 = (current_9_15v_ma / 10) as u32 & 0x3FF;
         let c2 = (current_15_20v_ma / 10) as u32 & 0x3FF;
@@ -848,6 +894,7 @@ impl Pdo {
     ///
     /// `min_mv`/`max_mv` are the adjustable range (bits `[15:8]` / `[25:17]`,
     /// 100 mV units) and `pd_power_w` the rated power in watts (bits `[7:0]`).
+    #[inline]
     pub const fn epr_avs(min_mv: u16, max_mv: u16, pd_power_w: u16) -> Self {
         let minv = (min_mv / 100) as u32 & 0xFF;
         let maxv = (max_mv / 100) as u32 & 0x1FF;
@@ -856,6 +903,7 @@ impl Pdo {
     }
 
     /// The PDO type (bits `[31:30]`).
+    #[inline]
     pub const fn pdo_type(self) -> PdoType {
         match self.0 >> 30 {
             0 => PdoType::FixedSupply,
@@ -868,6 +916,7 @@ impl Pdo {
     /// Fixed-supply voltage in millivolts (bits `[19:10]`, 50 mV units).
     ///
     /// Only meaningful for [`PdoType::FixedSupply`].
+    #[inline]
     pub const fn voltage_mv(self) -> u16 {
         (((self.0 >> 10) & 0x3FF) * 50) as u16
     }
@@ -876,6 +925,7 @@ impl Pdo {
     /// units).
     ///
     /// Only meaningful for [`PdoType::Apdo`].
+    #[inline]
     pub const fn min_voltage_mv(self) -> u16 {
         (((self.0 >> 8) & 0xFF) * 100) as u16
     }
@@ -884,6 +934,7 @@ impl Pdo {
     /// units).
     ///
     /// Only meaningful for [`PdoType::Apdo`].
+    #[inline]
     pub const fn max_voltage_mv(self) -> u16 {
         (((self.0 >> 17) & 0xFF) * 100) as u16
     }
@@ -892,6 +943,7 @@ impl Pdo {
     ///
     /// Fixed supply: bits `[9:0]` in 10 mA units. APDO (PPS): bits
     /// `[6:0]` in 50 mA units. 0 for other types.
+    #[inline]
     pub const fn max_current_ma(self) -> u16 {
         match self.pdo_type() {
             PdoType::FixedSupply => ((self.0 & 0x3FF) * 10) as u16,
@@ -903,6 +955,7 @@ impl Pdo {
     /// The APDO supply type (bits `[29:28]`).
     ///
     /// Only meaningful for [`PdoType::Apdo`].
+    #[inline]
     pub const fn apdo_type(self) -> ApdoType {
         match (self.0 >> 28) & 0x3 {
             0 => ApdoType::Pps,
@@ -914,6 +967,7 @@ impl Pdo {
     /// EPR AVS minimum voltage in millivolts (bits `[15:8]`, 100 mV units).
     ///
     /// Only meaningful for an [`ApdoType::EprAvs`] PDO.
+    #[inline]
     pub const fn epr_min_voltage_mv(self) -> u16 {
         (((self.0 >> 8) & 0xFF) * 100) as u16
     }
@@ -921,6 +975,7 @@ impl Pdo {
     /// EPR AVS maximum voltage in millivolts (bits `[25:17]`, 100 mV units).
     ///
     /// Only meaningful for an [`ApdoType::EprAvs`] PDO.
+    #[inline]
     pub const fn epr_max_voltage_mv(self) -> u16 {
         (((self.0 >> 17) & 0x1FF) * 100) as u16
     }
@@ -928,6 +983,7 @@ impl Pdo {
     /// EPR AVS rated power in watts (bits `[7:0]`).
     ///
     /// Only meaningful for an [`ApdoType::EprAvs`] PDO.
+    #[inline]
     pub const fn epr_pd_power_w(self) -> u16 {
         (self.0 & 0xFF) as u16
     }
@@ -936,6 +992,7 @@ impl Pdo {
     /// 10 mA units).
     ///
     /// Only meaningful for an [`ApdoType::SprAvs`] PDO.
+    #[inline]
     pub const fn spr_avs_current_9_15v_ma(self) -> u16 {
         (((self.0 >> 10) & 0x3FF) * 10) as u16
     }
@@ -944,6 +1001,7 @@ impl Pdo {
     /// 10 mA units).
     ///
     /// Only meaningful for an [`ApdoType::SprAvs`] PDO.
+    #[inline]
     pub const fn spr_avs_current_15_20v_ma(self) -> u16 {
         ((self.0 & 0x3FF) * 10) as u16
     }
@@ -969,16 +1027,19 @@ pub struct Rdo(u32);
 
 impl Rdo {
     /// Build a RDO from its raw 32-bit value.
+    #[inline]
     pub const fn from_bits(bits: u32) -> Self {
         Self(bits)
     }
 
     /// The raw 32-bit RDO value.
+    #[inline]
     pub const fn bits(self) -> u32 {
         self.0
     }
 
     /// The 1-based index of the requested PDO (bits `[31:28]`).
+    #[inline]
     pub const fn position(self) -> u8 {
         ((self.0 >> 28) & 0xF) as u8
     }
@@ -987,6 +1048,7 @@ impl Rdo {
     ///
     /// `operating_ma`/`max_ma` are the operating and maximum currents
     /// (10 mA units, bits `[19:10]` / `[9:0]`).
+    #[inline]
     pub const fn fixed(position: u8, operating_ma: u16, max_ma: u16) -> Self {
         let pos = ((position as u32) & 0xF) << 28;
         let op = ((operating_ma / 10) as u32) & 0x3FF;
@@ -999,6 +1061,7 @@ impl Rdo {
     /// `output_mv` is the requested output voltage (20 mV units, bits
     /// `[20:9]`) and `current_ma` the operating current (50 mA units, bits
     /// `[6:0]`).
+    #[inline]
     pub const fn pps(position: u8, output_mv: u16, current_ma: u16) -> Self {
         let pos = ((position as u32) & 0xF) << 28;
         let v = ((output_mv / 20) as u32) & 0xFFF;
@@ -1011,6 +1074,7 @@ impl Rdo {
     /// `output_mv` is the requested output voltage (25 mV units, bits
     /// `[20:9]`) and `current_ma` the operating current (50 mA units, bits
     /// `[6:0]`).
+    #[inline]
     pub const fn avs(position: u8, output_mv: u16, current_ma: u16) -> Self {
         let pos = ((position as u32) & 0xF) << 28;
         let v = ((output_mv / 25) as u32) & 0xFFF;
@@ -1019,26 +1083,31 @@ impl Rdo {
     }
 
     /// Fixed-supply operating current in mA (bits `[19:10]`, 10 mA units).
+    #[inline]
     pub const fn operating_current_ma(self) -> u16 {
         (((self.0 >> 10) & 0x3FF) * 10) as u16
     }
 
     /// Fixed-supply maximum current in mA (bits `[9:0]`, 10 mA units).
+    #[inline]
     pub const fn max_current_ma(self) -> u16 {
         ((self.0 & 0x3FF) * 10) as u16
     }
 
     /// PPS output voltage in mV (bits `[20:9]`, 20 mV units).
+    #[inline]
     pub const fn pps_output_voltage_mv(self) -> u16 {
         (((self.0 >> 9) & 0xFFF) * 20) as u16
     }
 
     /// AVS output voltage in mV (bits `[20:9]`, 25 mV units).
+    #[inline]
     pub const fn avs_output_voltage_mv(self) -> u16 {
         (((self.0 >> 9) & 0xFFF) * 25) as u16
     }
 
     /// PPS/AVS operating current in mA (bits `[6:0]`, 50 mA units).
+    #[inline]
     pub const fn output_current_ma(self) -> u16 {
         ((self.0 & 0x7F) * 50) as u16
     }
@@ -1062,6 +1131,7 @@ pub enum EprModeAction {
 
 /// Build an EPR_Mode data object: `action` in bits `[31:24]` with an 8-bit
 /// payload in bits `[23:16]`.
+#[inline]
 pub const fn make_epr_mode(action: EprModeAction, data: u8) -> u32 {
     ((action as u32) << 24) | ((data as u32) << 16)
 }
@@ -1071,6 +1141,7 @@ pub const fn make_epr_mode(action: EprModeAction, data: u8) -> u32 {
 ///
 /// Returns the two data objects to pass to [`Message::data`] with message
 /// type [`DataMessage::EprRequest`].
+#[inline]
 pub const fn make_epr_request(rdo: u32, pdo: u32) -> [u32; 2] {
     [rdo, pdo]
 }

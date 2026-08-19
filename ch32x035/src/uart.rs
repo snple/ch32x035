@@ -141,6 +141,7 @@ pub struct Errors {
 
 impl Errors {
     /// Whether no error flag is set.
+    #[inline]
     pub const fn is_empty(self) -> bool {
         !self.overrun && !self.noise && !self.framing && !self.parity
     }
@@ -340,6 +341,7 @@ macro_rules! impl_uart {
             }
 
             /// Non-blocking read: returns `Some(byte)` if data is available.
+            #[inline]
             pub fn read_available(&mut self) -> Option<u8> {
                 if self.uart.statr.rxne() {
                     Some(self.uart.datar.dr() as u8)
@@ -360,6 +362,7 @@ macro_rules! impl_uart {
             }
 
             /// Read the currently-set error flags.
+            #[inline]
             pub fn errors(&self) -> Errors {
                 Errors {
                     overrun: self.uart.statr.ore(),
@@ -373,6 +376,7 @@ macro_rules! impl_uart {
             ///
             /// The error flags are cleared by reading STATR followed by
             /// reading DATAR (WCH/STM32 convention).
+            #[inline]
             pub fn clear_errors(&mut self) {
                 let _ = self.uart.statr.read_bits();
                 let _ = self.uart.datar.dr();
@@ -382,6 +386,7 @@ macro_rules! impl_uart {
             ///
             /// IDLE is cleared by reading STATR followed by reading DATAR,
             /// exactly like the error flags.
+            #[inline]
             pub fn clear_idle(&mut self) {
                 let _ = self.uart.statr.read_bits();
                 let _ = self.uart.datar.dr();
@@ -448,22 +453,26 @@ macro_rules! impl_uart {
             ///
             /// Keep it asserted for at least one frame duration, then call
             /// [`clear_break`](Self::clear_break).
+            #[inline(always)]
             pub fn set_break(&mut self) {
                 self.uart.ctlr1.set_sbk();
             }
 
             /// Stop the break condition started by
             /// [`set_break`](Self::set_break).
+            #[inline(always)]
             pub fn clear_break(&mut self) {
                 self.uart.ctlr1.clr_sbk();
             }
 
             /// Whether a break condition was detected on the RX line.
+            #[inline(always)]
             pub fn break_detected(&self) -> bool {
                 self.uart.statr.lbd()
             }
 
             /// Whether the RX line has been idle for a full frame.
+            #[inline(always)]
             pub fn rx_idle(&self) -> bool {
                 self.uart.statr.idle()
             }
@@ -471,42 +480,50 @@ macro_rules! impl_uart {
             /// Whether a received byte is ready to be read (RXNE).
             ///
             /// Useful from an interrupt handler.
+            #[inline(always)]
             pub fn rx_ready(&self) -> bool {
                 self.uart.statr.rxne()
             }
 
             /// Whether the TX data register is empty and ready for the next
             /// byte (TXE). Useful from an interrupt handler.
+            #[inline(always)]
             pub fn tx_ready(&self) -> bool {
                 self.uart.statr.txe()
             }
 
             /// Enable the receive (RXNE) interrupt.
+            #[inline(always)]
             pub fn enable_rx_interrupt(&mut self) {
                 self.uart.ctlr1.set_rxneie();
             }
 
             /// Enable the transmit (TXE) interrupt.
+            #[inline(always)]
             pub fn enable_tx_interrupt(&mut self) {
                 self.uart.ctlr1.set_txeie();
             }
 
             /// Enable the transmission-complete (TC) interrupt.
+            #[inline(always)]
             pub fn enable_tx_complete_interrupt(&mut self) {
                 self.uart.ctlr1.set_tcie();
             }
 
             /// Enable the idle-line (IDLE) interrupt.
+            #[inline(always)]
             pub fn enable_idle_interrupt(&mut self) {
                 self.uart.ctlr1.set_idleie();
             }
 
             /// Enable the parity-error (PE) interrupt.
+            #[inline(always)]
             pub fn enable_parity_error_interrupt(&mut self) {
                 self.uart.ctlr1.set_peie();
             }
 
             /// Disable all USART interrupt sources.
+            #[inline]
             pub fn disable_interrupts(&mut self) {
                 self.uart.ctlr1.clr_rxneie();
                 self.uart.ctlr1.clr_txeie();
@@ -516,6 +533,7 @@ macro_rules! impl_uart {
             }
 
             /// Enable or disable the RX DMA request (CTLR3 DMAR).
+            #[inline]
             pub fn set_dma_rx(&mut self, enabled: bool) {
                 if enabled {
                     self.uart.ctlr3.set_dmar();
@@ -525,6 +543,7 @@ macro_rules! impl_uart {
             }
 
             /// Enable or disable the TX DMA request (CTLR3 DMAT).
+            #[inline]
             pub fn set_dma_tx(&mut self, enabled: bool) {
                 if enabled {
                     self.uart.ctlr3.set_dmat();
@@ -534,11 +553,13 @@ macro_rules! impl_uart {
             }
 
             /// Set the IrDA prescaler (GPR PSC field).
+            #[inline(always)]
             pub fn set_prescaler(&mut self, psc: u8) {
                 self.uart.gpr.write_psc(psc as u32);
             }
 
             /// Set the IrDA guard time (GPR GT field).
+            #[inline(always)]
             pub fn set_guard_time(&mut self, gt: u8) {
                 self.uart.gpr.write_gt(gt as u32);
             }
@@ -562,11 +583,13 @@ macro_rules! impl_uart {
             }
 
             /// Consume the driver and return the underlying peripheral.
+            #[inline(always)]
             pub fn release(self) -> $periph {
                 self.uart
             }
 
             /// Borrow the raw USART register block.
+            #[inline(always)]
             pub fn regs(&self) -> &<$periph as core::ops::Deref>::Target {
                 &self.uart
             }

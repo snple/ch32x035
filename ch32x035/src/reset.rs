@@ -37,9 +37,11 @@ pub trait Resettable {
 macro_rules! impl_apb2 {
     ($periph:ty, $variant:ident) => {
         impl Resettable for $periph {
+            #[inline]
             fn enable_clock(&self, rcc: &mut Rcc) {
                 rcc.apb2_enable(Apb2Periph::$variant);
             }
+            #[inline]
             fn reset(&self, rcc: &mut Rcc) {
                 rcc.apb2_reset(Apb2Periph::$variant);
                 rcc.apb2_clear_reset(Apb2Periph::$variant);
@@ -52,9 +54,11 @@ macro_rules! impl_apb2 {
 macro_rules! impl_apb1 {
     ($periph:ty, $variant:ident) => {
         impl Resettable for $periph {
+            #[inline]
             fn enable_clock(&self, rcc: &mut Rcc) {
                 rcc.apb1_enable(Apb1Periph::$variant);
             }
+            #[inline]
             fn reset(&self, rcc: &mut Rcc) {
                 rcc.apb1_reset(Apb1Periph::$variant);
                 rcc.apb1_clear_reset(Apb1Periph::$variant);
@@ -67,9 +71,11 @@ macro_rules! impl_apb1 {
 macro_rules! impl_ahb {
     ($periph:ty, $variant:ident) => {
         impl Resettable for $periph {
+            #[inline]
             fn enable_clock(&self, rcc: &mut Rcc) {
                 rcc.ahb_enable(AhbPeriph::$variant);
             }
+            #[inline]
             fn reset(&self, rcc: &mut Rcc) {
                 rcc.ahb_reset(crate::rcc::AhbReset::$variant);
                 rcc.ahb_clear_reset(crate::rcc::AhbReset::$variant);
@@ -104,9 +110,11 @@ impl_ahb!(pac::USBFS, Usbfs);
 /// DMA1 has no reset line in the CH32X035 (AHB reset register has none), so
 /// only the clock is enabled.
 impl Resettable for pac::DMA {
+    #[inline]
     fn enable_clock(&self, rcc: &mut Rcc) {
         rcc.ahb_enable(AhbPeriph::Dma1);
     }
+    #[inline]
     fn reset(&self, _rcc: &mut Rcc) {
         // no reset line available
     }

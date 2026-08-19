@@ -80,6 +80,7 @@ pub enum CcPull {
 }
 
 impl CcPull {
+    #[inline]
     const fn bits(self) -> u32 {
         match self {
             CcPull::NoPull => 0,
@@ -110,6 +111,7 @@ pub enum CcComparator {
 }
 
 impl CcComparator {
+    #[inline]
     const fn bits(self) -> u32 {
         match self {
             CcComparator::Closed => 0,
@@ -140,6 +142,7 @@ pub enum SopType {
 
 impl SopType {
     /// The `TX_SEL` register value for this SOP type.
+    #[inline]
     pub const fn tx_sel(self) -> u8 {
         match self {
             // TX_SEL1_SYNC1 | TX_SEL2_SYNC1 | TX_SEL3_SYNC1 | TX_SEL4_SYNC2
@@ -203,6 +206,7 @@ impl Usbpd {
     // =====================================================================
 
     /// Apply a read-modify-write to the given CC port's register.
+    #[inline(always)]
     fn cc_modify<F: FnOnce(u32) -> u32>(&self, port: CcPort, f: F) {
         match port {
             CcPort::Cc1 => self.usbpd.port_cc1.modify_bits(f),
@@ -242,6 +246,7 @@ impl Usbpd {
     }
 
     /// Enable the CC output low-voltage (used before BMC transmission).
+    #[inline(always)]
     pub fn enable_cc_low_voltage(&mut self, port: CcPort) {
         self.cc_modify(port, |v| v | CC_LV0);
     }
@@ -306,11 +311,13 @@ impl Usbpd {
     }
 
     /// Whether a packet has been received (IF_RX_ACT set).
+    #[inline(always)]
     pub fn is_rx_complete(&self) -> bool {
         self.usbpd.status.read_bits() & STATUS_IF_RX_ACT != 0
     }
 
     /// The number of bytes received in the last packet.
+    #[inline(always)]
     pub fn received_len(&self) -> u8 {
         self.usbpd.bmc_byte_cnt.read_bits() as u8
     }
@@ -363,6 +370,7 @@ impl Usbpd {
     }
 
     /// Whether the last transmission has completed (IF_TX_END set).
+    #[inline(always)]
     pub fn is_tx_done(&self) -> bool {
         self.usbpd.status.read_bits() & STATUS_IF_TX_END != 0
     }
@@ -372,11 +380,13 @@ impl Usbpd {
     // =====================================================================
 
     /// Clear all USBPD interrupt flags.
+    #[inline(always)]
     pub fn clear_all_flags(&mut self) {
         self.usbpd.status.write_bits(STATUS_ALL_FLAGS);
     }
 
     /// Read the raw STATUS register value.
+    #[inline(always)]
     pub fn status(&self) -> u32 {
         self.usbpd.status.read_bits()
     }
@@ -396,6 +406,7 @@ impl Usbpd {
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::USBPD {
         self.usbpd
     }

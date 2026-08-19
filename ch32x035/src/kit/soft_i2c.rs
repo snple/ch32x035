@@ -56,6 +56,7 @@ pub enum Speed {
 
 impl Speed {
     /// Half-period delay in microseconds used for the bit timing.
+    #[inline(always)]
     fn half_period_us(self) -> u32 {
         match self {
             Speed::Standard => 5,
@@ -155,12 +156,14 @@ impl<D: DelayUs> SoftI2c<D> {
     // =====================================================================
 
     /// Release both lines (pull-up inputs), putting the bus in the idle state.
+    #[inline(always)]
     fn release_bus(&mut self) {
         self.sda_release();
         self.scl_release();
     }
 
     /// Drive SCL low.
+    #[inline(always)]
     fn scl_low(&mut self) {
         // SAFETY: `new` requires a `&Pins` (GPIO initialized) and `&mut self`
         // guarantees exclusive access; the pin was validated at construction.
@@ -168,6 +171,7 @@ impl<D: DelayUs> SoftI2c<D> {
     }
 
     /// Release SCL (input pull-up; a slave may stretch it low).
+    #[inline(always)]
     fn scl_release(&mut self) {
         // SAFETY: see `scl_low`.
         unsafe { crate::gpio::into_input_pullup(self.scl) };
@@ -191,18 +195,21 @@ impl<D: DelayUs> SoftI2c<D> {
     }
 
     /// Drive SDA low.
+    #[inline(always)]
     fn sda_low(&mut self) {
         // SAFETY: see `scl_low`.
         unsafe { crate::gpio::set_low(self.sda) };
     }
 
     /// Release SDA (input pull-up → high unless a slave pulls it low).
+    #[inline(always)]
     fn sda_release(&mut self) {
         // SAFETY: see `scl_low`.
         unsafe { crate::gpio::into_input_pullup(self.sda) };
     }
 
     /// Write one data bit: `high` = release (1), `false` = drive low (0).
+    #[inline(always)]
     fn sda_write(&mut self, high: bool) {
         if high {
             self.sda_release();
@@ -212,6 +219,7 @@ impl<D: DelayUs> SoftI2c<D> {
     }
 
     /// Sample the current SDA level (the line must already be released).
+    #[inline(always)]
     fn sda_read(&mut self) -> bool {
         // SAFETY: see `scl_low`.
         unsafe { crate::gpio::get(self.sda) }

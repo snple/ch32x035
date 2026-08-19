@@ -14,10 +14,12 @@ struct Ch32x035CriticalSection;
 set_impl!(Ch32x035CriticalSection);
 
 unsafe impl critical_section::Impl for Ch32x035CriticalSection {
+    #[inline]
     unsafe fn acquire() -> RawRestoreState {
         unsafe { interrupt::cs_acquire() }
     }
 
+    #[inline]
     unsafe fn release(state: RawRestoreState) {
         unsafe { interrupt::cs_release(state) }
     }

@@ -63,6 +63,7 @@ pub enum DmaDir {
 }
 
 impl DmaDir {
+    #[inline]
     const fn bits(self) -> u32 {
         match self {
             DmaDir::MemoryToPeripheral => 0,
@@ -84,6 +85,7 @@ pub enum DataSize {
 }
 
 impl DataSize {
+    #[inline]
     const fn bits(self) -> u32 {
         match self {
             DataSize::Byte => 0b00,
@@ -127,6 +129,7 @@ impl Dma {
     }
 
     /// Get a handle to one of the 8 DMA channels (1..=8).
+    #[inline]
     pub fn channel<const CH: u8>(&self) -> DmaChannel<CH> {
         const { assert!(CH >= 1 && CH <= 8, "DMA channels are 1..=8") };
         DmaChannel {
@@ -135,6 +138,7 @@ impl Dma {
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::DMA {
         self.dma
     }
@@ -147,6 +151,7 @@ pub struct DmaChannel<const CH: u8> {
 
 impl<const CH: u8> DmaChannel<CH> {
     /// Base offset of this channel's register group
+    #[inline(always)]
     const fn ch_base() -> u32 {
         CH_CFGR + (CH as u32 - 1) * CH_STRIDE
     }
@@ -168,21 +173,25 @@ impl<const CH: u8> DmaChannel<CH> {
     }
 
     /// Set the peripheral address register
+    #[inline(always)]
     pub fn set_peripheral_address(&self, addr: u32) {
         Self::write(Self::ch_base() + 0x08, addr);
     }
 
     /// Set the memory address register
+    #[inline(always)]
     pub fn set_memory_address(&self, addr: u32) {
         Self::write(Self::ch_base() + 0x0C, addr);
     }
 
     /// Set the transfer count (number of transfers)
+    #[inline(always)]
     pub fn set_transfer_count(&self, count: u16) {
         Self::write(Self::ch_base() + 0x04, count as u32);
     }
 
     /// Check whether the channel is enabled
+    #[inline(always)]
     pub fn is_enabled(&self) -> bool {
         Self::read(Self::ch_base()) & CFGR_EN != 0
     }
@@ -190,6 +199,7 @@ impl<const CH: u8> DmaChannel<CH> {
     /// Configure the channel (without starting it).
     ///
     /// `pinc`/`minc` enable peripheral/memory address increments.
+    #[inline]
     pub fn configure(&self, dir: DmaDir, psize: DataSize, msize: DataSize, pinc: bool, minc: bool) {
         let mut cfg = dir.bits()
             | (psize.bits() << CFGR_PSIZE_SHIFT)
@@ -202,11 +212,13 @@ impl<const CH: u8> DmaChannel<CH> {
     }
 
     /// Enable the channel.
+    #[inline(always)]
     pub fn enable(&self) {
         Self::modify(Self::ch_base(), |v| v | CFGR_EN);
     }
 
     /// Disable the channel.
+    #[inline(always)]
     pub fn disable(&self) {
         Self::modify(Self::ch_base(), |v| v & !CFGR_EN);
     }
@@ -233,12 +245,14 @@ impl<const CH: u8> DmaChannel<CH> {
     }
 
     /// Whether the transfer-complete interrupt flag is set.
+    #[inline(always)]
     pub fn is_complete(&self) -> bool {
         let bit = 1 << (CH as u32 % 8 * 4 + 1); // TCIFn = bit 4*(n-1)+1
         Self::read(OFFSET_INTFR) & bit != 0
     }
 
     /// Clear all interrupt flags for this channel.
+    #[inline(always)]
     pub fn clear_flags(&self) {
         let bits = 0xF << (CH as u32 % 8 * 4); // GIFn|TCIFn|HTIFn|TEIFn
         Self::write(OFFSET_INTFCR, bits);

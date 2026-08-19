@@ -31,6 +31,7 @@ impl<const N: usize> Default for RingBuffer<N> {
 
 impl<const N: usize> RingBuffer<N> {
     /// Create an empty ring buffer.
+    #[inline]
     pub const fn new() -> Self {
         Self {
             buf: [0; N],
@@ -40,21 +41,25 @@ impl<const N: usize> RingBuffer<N> {
     }
 
     /// Number of buffered bytes.
+    #[inline]
     pub const fn len(&self) -> usize {
         self.len
     }
 
     /// Whether the buffer is empty.
+    #[inline]
     pub const fn is_empty(&self) -> bool {
         self.len == 0
     }
 
     /// Whether the buffer is full.
+    #[inline]
     pub const fn is_full(&self) -> bool {
         self.len == N
     }
 
     /// Append a byte, returning `false` if the buffer is full.
+    #[inline]
     pub fn push(&mut self, byte: u8) -> bool {
         if self.is_full() {
             return false;
@@ -66,6 +71,7 @@ impl<const N: usize> RingBuffer<N> {
     }
 
     /// Remove and return the oldest byte, if any.
+    #[inline]
     pub fn pop(&mut self) -> Option<u8> {
         if self.is_empty() {
             return None;

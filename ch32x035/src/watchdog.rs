@@ -59,23 +59,27 @@ impl Iwdg {
     }
 
     /// Reload the watchdog counter (feed the dog).
+    #[inline(always)]
     pub fn reload(&self) {
         self.iwdg.ctlr.write_bits(IWDG_KEY_RELOAD);
     }
 
     /// Set the prescaler (requires unlocking; only valid before starting).
+    #[inline]
     pub fn set_prescaler(&mut self, prescaler: u8) {
         self.iwdg.ctlr.write_bits(IWDG_KEY_UNLOCK);
         self.iwdg.pscr.write_pr((prescaler & 0b111) as u32);
     }
 
     /// Set the reload value (requires unlocking; only valid before starting).
+    #[inline]
     pub fn set_reload(&mut self, reload: u16) {
         self.iwdg.ctlr.write_bits(IWDG_KEY_UNLOCK);
         self.iwdg.rldr.write_rl((reload & 0x0FFF) as u32);
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::IWDG {
         self.iwdg
     }
@@ -116,17 +120,20 @@ impl Wwdg {
     }
 
     /// Feed the watchdog (rewrite the counter value).
+    #[inline]
     pub fn feed(&mut self, counter: u8) {
         let ctlr = self.wwdg.ctlr.read_bits() & !0x7F;
         self.wwdg.ctlr.write_bits(ctlr | ((counter & 0x7F) as u32));
     }
 
     /// Enable the early-wakeup interrupt.
+    #[inline(always)]
     pub fn enable_early_wakeup_interrupt(&mut self) {
         self.wwdg.cfgr.set_ewi();
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::WWDG {
         self.wwdg
     }

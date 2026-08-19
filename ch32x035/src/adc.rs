@@ -175,41 +175,49 @@ impl Adc {
     }
 
     /// Enable scan mode (multi-channel regular conversion).
+    #[inline(always)]
     pub fn enable_scan(&mut self) {
         self.adc.ctlr1.set_scan();
     }
 
     /// Disable scan mode.
+    #[inline(always)]
     pub fn disable_scan(&mut self) {
         self.adc.ctlr1.clr_scan();
     }
 
     /// Enable continuous conversion mode.
+    #[inline(always)]
     pub fn enable_continuous(&mut self) {
         self.adc.ctlr2.set_cont();
     }
 
     /// Disable continuous conversion mode.
+    #[inline(always)]
     pub fn disable_continuous(&mut self) {
         self.adc.ctlr2.clr_cont();
     }
 
     /// Enable DMA mode (conversion results are written to memory via DMA).
+    #[inline(always)]
     pub fn enable_dma(&mut self) {
         self.adc.ctlr2.set_dma();
     }
 
     /// Disable DMA mode.
+    #[inline(always)]
     pub fn disable_dma(&mut self) {
         self.adc.ctlr2.clr_dma();
     }
 
     /// Enable the touch-key interface (`TKEYEN`).
+    #[inline(always)]
     pub fn enable_touchkey(&mut self) {
         self.adc.ctlr1.set_tkeyen();
     }
 
     /// Disable the touch-key interface.
+    #[inline(always)]
     pub fn disable_touchkey(&mut self) {
         self.adc.ctlr1.clr_tkeyen();
     }
@@ -271,36 +279,43 @@ impl Adc {
     }
 
     /// Start a software-triggered regular conversion.
+    #[inline(always)]
     pub fn start_conversion(&mut self) {
         self.adc.ctlr2.set_swstart();
     }
 
     /// Start a software-triggered injected conversion.
+    #[inline(always)]
     pub fn start_injected_conversion(&mut self) {
         self.adc.ctlr2.set_jswstart();
     }
 
     /// Check whether the regular conversion has completed.
+    #[inline(always)]
     pub fn is_conversion_complete(&self) -> bool {
         self.adc.statr.eoc()
     }
 
     /// Check whether the injected conversion has completed.
+    #[inline(always)]
     pub fn is_injected_complete(&self) -> bool {
         self.adc.statr.jeoc()
     }
 
     /// Clear the regular end-of-conversion flag.
+    #[inline(always)]
     pub fn clear_eoc(&mut self) {
         self.adc.statr.clr_eoc();
     }
 
     /// Clear the injected end-of-conversion flag.
+    #[inline(always)]
     pub fn clear_jeoc(&mut self) {
         self.adc.statr.clr_jeoc();
     }
 
     /// Read the most recent regular conversion result (12-bit).
+    #[inline(always)]
     pub fn read_data(&self) -> u16 {
         (self.adc.rdatar_dr_act_dcg.read_bits() & 0x0FFF) as u16
     }
@@ -332,11 +347,13 @@ impl Adc {
     }
 
     /// Check whether the analog watchdog flag is set.
+    #[inline(always)]
     pub fn is_watchdog_flag(&self) -> bool {
         self.adc.statr.awd()
     }
 
     /// Clear the analog watchdog flag.
+    #[inline(always)]
     pub fn clear_watchdog_flag(&mut self) {
         self.adc.statr.clr_awd();
     }
@@ -349,6 +366,7 @@ impl Adc {
     }
 
     /// Disable external triggering of regular conversions.
+    #[inline(always)]
     pub fn disable_external_trigger(&mut self) {
         self.adc.ctlr2.clr_exttrig();
     }
@@ -361,41 +379,49 @@ impl Adc {
     }
 
     /// Disable external triggering of injected conversions.
+    #[inline(always)]
     pub fn disable_injected_trigger(&mut self) {
         self.adc.ctlr2.clr_jexttrig();
     }
 
     /// Enable the regular end-of-conversion interrupt.
+    #[inline(always)]
     pub fn enable_eoc_interrupt(&mut self) {
         self.adc.ctlr1.set_eocie();
     }
 
     /// Disable the regular end-of-conversion interrupt.
+    #[inline(always)]
     pub fn disable_eoc_interrupt(&mut self) {
         self.adc.ctlr1.clr_eocie();
     }
 
     /// Enable the injected end-of-conversion interrupt.
+    #[inline(always)]
     pub fn enable_injected_interrupt(&mut self) {
         self.adc.ctlr1.set_jeocie();
     }
 
     /// Disable the injected end-of-conversion interrupt.
+    #[inline(always)]
     pub fn disable_injected_interrupt(&mut self) {
         self.adc.ctlr1.clr_jeocie();
     }
 
     /// Enable the analog watchdog interrupt.
+    #[inline(always)]
     pub fn enable_watchdog_interrupt(&mut self) {
         self.adc.ctlr1.set_awdie();
     }
 
     /// Disable the analog watchdog interrupt.
+    #[inline(always)]
     pub fn disable_watchdog_interrupt(&mut self) {
         self.adc.ctlr1.clr_awdie();
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::ADC {
         self.adc
     }

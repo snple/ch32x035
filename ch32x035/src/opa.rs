@@ -124,6 +124,7 @@ pub struct Opa {
 
 impl Opa {
     /// Create a new OPA driver. OPA has no clock gate on the CH32X035.
+    #[inline]
     pub fn new(opa: pac::OPA) -> Self {
         Self { opa, cfg2: 0 }
     }
@@ -182,16 +183,19 @@ impl Opa {
     }
 
     /// Enable OPA1.
+    #[inline(always)]
     pub fn enable_opamp1(&mut self) {
         self.opa.ctlr1.set_en1();
     }
 
     /// Disable OPA1.
+    #[inline(always)]
     pub fn disable_opamp1(&mut self) {
         self.opa.ctlr1.clr_en1();
     }
 
     /// Check whether OPA1 is enabled.
+    #[inline(always)]
     pub fn is_opamp1_enabled(&self) -> bool {
         self.opa.ctlr1.en1()
     }
@@ -215,18 +219,21 @@ impl Opa {
 
     /// Enable OPA2.
     #[cfg(feature = "__opa2")]
+    #[inline(always)]
     pub fn enable_opamp2(&mut self) {
         self.opa.ctlr1.set_en2();
     }
 
     /// Disable OPA2.
     #[cfg(feature = "__opa2")]
+    #[inline(always)]
     pub fn disable_opamp2(&mut self) {
         self.opa.ctlr1.clr_en2();
     }
 
     /// Check whether OPA2 is enabled.
     #[cfg(feature = "__opa2")]
+    #[inline(always)]
     pub fn is_opamp2_enabled(&self) -> bool {
         self.opa.ctlr1.en2()
     }
@@ -265,18 +272,21 @@ impl Opa {
 
     /// Enable comparator 1.
     #[cfg(feature = "__cmp1")]
+    #[inline(always)]
     pub fn enable_comparator1(&mut self) {
         self.opa.ctlr2.set_en1();
     }
 
     /// Disable comparator 1.
     #[cfg(feature = "__cmp1")]
+    #[inline(always)]
     pub fn disable_comparator1(&mut self) {
         self.opa.ctlr2.clr_en1();
     }
 
     /// Check whether comparator 1 is enabled.
     #[cfg(feature = "__cmp1")]
+    #[inline(always)]
     pub fn is_comparator1_enabled(&self) -> bool {
         self.opa.ctlr2.en1()
     }
@@ -309,18 +319,21 @@ impl Opa {
 
     /// Enable comparator 2.
     #[cfg(feature = "__cmp2")]
+    #[inline(always)]
     pub fn enable_comparator2(&mut self) {
         self.opa.ctlr2.set_en2();
     }
 
     /// Disable comparator 2.
     #[cfg(feature = "__cmp2")]
+    #[inline(always)]
     pub fn disable_comparator2(&mut self) {
         self.opa.ctlr2.clr_en2();
     }
 
     /// Check whether comparator 2 is enabled.
     #[cfg(feature = "__cmp2")]
+    #[inline(always)]
     pub fn is_comparator2_enabled(&self) -> bool {
         self.opa.ctlr2.en2()
     }
@@ -353,18 +366,21 @@ impl Opa {
 
     /// Enable comparator 3.
     #[cfg(feature = "__cmp3")]
+    #[inline(always)]
     pub fn enable_comparator3(&mut self) {
         self.opa.ctlr2.set_en3();
     }
 
     /// Disable comparator 3.
     #[cfg(feature = "__cmp3")]
+    #[inline(always)]
     pub fn disable_comparator3(&mut self) {
         self.opa.ctlr2.clr_en3();
     }
 
     /// Check whether comparator 3 is enabled.
     #[cfg(feature = "__cmp3")]
+    #[inline(always)]
     pub fn is_comparator3_enabled(&self) -> bool {
         self.opa.ctlr2.en3()
     }
@@ -374,24 +390,28 @@ impl Opa {
     // =====================================================================
 
     /// Read the 16-bit `CFGR1` register (offset 0x00).
+    #[inline(always)]
     fn cfg1(&self) -> u16 {
         // SAFETY: `CFGR1` is a 16-bit register at the OPA base address.
         unsafe { core::ptr::read_volatile(pac::opa::BASE as *const u16) }
     }
 
     /// Write the 16-bit `CFGR1` register (offset 0x00).
+    #[inline(always)]
     fn set_cfg1(&mut self, value: u16) {
         // SAFETY: `CFGR1` is a 16-bit register at the OPA base address.
         unsafe { core::ptr::write_volatile(pac::opa::BASE as *mut u16, value) }
     }
 
     /// Write the 16-bit `CFGR2` register (offset 0x02).
+    #[inline(always)]
     fn set_cfg2(&mut self, value: u16) {
         // SAFETY: `CFGR2` is a 16-bit register at the OPA base address + 2.
         unsafe { core::ptr::write_volatile((pac::opa::BASE + 2) as *mut u16, value) }
     }
 
     /// Set or clear a single `CFGR1` bit.
+    #[inline(always)]
     fn cfg1_bit(&mut self, mask: u16, value: bool) {
         let v = self.cfg1();
         self.set_cfg1(if value { v | mask } else { v & !mask });
@@ -480,28 +500,33 @@ impl Opa {
     }
 
     /// Polling interval end flag.
+    #[inline(always)]
     pub fn poll_end_flag(&self) -> bool {
         self.cfg1() & CFG_IF_CNT != 0
     }
 
     /// OPA1 output-high flag (set while polling).
+    #[inline(always)]
     pub fn opamp1_output_flag(&self) -> bool {
         self.cfg1() & CFG_IF_OUT1 != 0
     }
 
     /// OPA2 output-high flag (set while polling).
     #[cfg(feature = "__opa2")]
+    #[inline(always)]
     pub fn opamp2_output_flag(&self) -> bool {
         self.cfg1() & CFG_IF_OUT2 != 0
     }
 
     /// Clear all three interrupt flags (write 0).
+    #[inline(always)]
     pub fn clear_interrupt_flags(&mut self) {
         let v = self.cfg1() & !(CFG_IF_CNT | CFG_IF_OUT1 | CFG_IF_OUT2);
         self.set_cfg1(v);
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::OPA {
         self.opa
     }

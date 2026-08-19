@@ -65,6 +65,7 @@ impl Flash {
     }
 
     /// Lock the flash control registers.
+    #[inline(always)]
     pub fn lock(&mut self) {
         self.flash.ctlr.set_lock();
     }
@@ -123,11 +124,13 @@ impl Flash {
     }
 
     /// Read a 32-bit word from `addr`.
+    #[inline(always)]
     pub fn read_word(&self, addr: u32) -> u32 {
         unsafe { read_volatile(addr as *const u32) }
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::FLASH {
         self.flash
     }

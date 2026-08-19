@@ -45,51 +45,61 @@ impl Exti {
     }
 
     /// Enable the rising-edge trigger on `LINE`.
+    #[inline(always)]
     pub fn enable_rising<const LINE: u8>(&mut self) {
         self.exti.rtenr.modify_bits(|v| v | (1 << LINE));
     }
 
     /// Enable the falling-edge trigger on `LINE`.
+    #[inline(always)]
     pub fn enable_falling<const LINE: u8>(&mut self) {
         self.exti.ftenr.modify_bits(|v| v | (1 << LINE));
     }
 
     /// Disable the rising-edge trigger on `LINE`.
+    #[inline(always)]
     pub fn disable_rising<const LINE: u8>(&mut self) {
         self.exti.rtenr.modify_bits(|v| v & !(1 << LINE));
     }
 
     /// Disable the falling-edge trigger on `LINE`.
+    #[inline(always)]
     pub fn disable_falling<const LINE: u8>(&mut self) {
         self.exti.ftenr.modify_bits(|v| v & !(1 << LINE));
     }
 
     /// Enable the interrupt for `LINE`.
+    #[inline(always)]
     pub fn enable_interrupt<const LINE: u8>(&mut self) {
         self.exti.intenr.modify_bits(|v| v | (1 << LINE));
     }
 
     /// Disable the interrupt for `LINE`.
+    #[inline(always)]
     pub fn disable_interrupt<const LINE: u8>(&mut self) {
         self.exti.intenr.modify_bits(|v| v & !(1 << LINE));
     }
 
     /// Check whether `LINE` is pending.
+    #[inline(always)]
     pub fn is_pending<const LINE: u8>(&self) -> bool {
         self.exti.intfr.read_bits() & (1 << LINE) != 0
     }
 
     /// Clear the pending flag for `LINE`.
+    #[inline(always)]
     pub fn clear_pending<const LINE: u8>(&mut self) {
         self.exti.intfr.write_bits(1 << LINE);
     }
 
     /// Trigger `LINE` by software.
+    #[inline(always)]
     pub fn trigger<const LINE: u8>(&mut self) {
         self.exti.swievr.write_bits(1 << LINE);
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::EXTI {
         self.exti
     }

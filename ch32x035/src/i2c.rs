@@ -114,21 +114,25 @@ macro_rules! impl_i2c_interrupt {
     ($name:ident) => {
         impl $name {
             /// Enable the event interrupt (SB, ADDR, ADD10, BTF, STOPF).
+            #[inline(always)]
             pub fn enable_event_interrupt(&mut self) {
                 self.i2c.ctlr2.set_itevten();
             }
 
             /// Enable the buffer interrupt (RXNE, TXE).
+            #[inline(always)]
             pub fn enable_buffer_interrupt(&mut self) {
                 self.i2c.ctlr2.set_itbufen();
             }
 
             /// Enable the error interrupt (BERR, ARLO, AF, OVR, PECERR).
+            #[inline(always)]
             pub fn enable_error_interrupt(&mut self) {
                 self.i2c.ctlr2.set_iterren();
             }
 
             /// Disable all I2C interrupt sources.
+            #[inline]
             pub fn disable_interrupts(&mut self) {
                 self.i2c.ctlr2.clr_itevten();
                 self.i2c.ctlr2.clr_itbufen();
@@ -136,37 +140,44 @@ macro_rules! impl_i2c_interrupt {
             }
 
             /// Received byte ready (RXNE flag).
+            #[inline(always)]
             pub fn rx_not_empty(&self) -> bool {
                 self.i2c.star1.rx_ne()
             }
 
             /// Data register empty, ready for the next byte (TXE flag).
+            #[inline(always)]
             pub fn tx_empty(&self) -> bool {
                 self.i2c.star1.tx_e()
             }
 
             /// Byte transfer finished (BTF flag).
+            #[inline(always)]
             pub fn byte_transfer_finished(&self) -> bool {
                 self.i2c.star1.btf()
             }
 
             /// Write the data register (from an interrupt handler).
+            #[inline(always)]
             pub fn write_data(&mut self, byte: u8) {
                 self.i2c.datar.write_datar(byte as u32);
             }
 
             /// Read the data register (from an interrupt handler).
+            #[inline(always)]
             pub fn read_data(&self) -> u8 {
                 self.i2c.datar.datar() as u8
             }
 
             /// Clear the ADDR flag (read STAR1, then read STAR2).
+            #[inline(always)]
             pub fn clear_address(&mut self) {
                 let _ = self.i2c.star1.read_bits();
                 let _ = self.i2c.star2.read_bits();
             }
 
             /// Clear the error flags (AF, BERR, ARLO).
+            #[inline]
             pub fn clear_errors(&mut self) {
                 self.i2c.star1.clr_af();
                 self.i2c.star1.clr_berr();
@@ -236,6 +247,7 @@ impl I2c1 {
     }
 
     /// Check the error flags, returning the matching error.
+    #[inline]
     fn check_error(&self) -> Result<(), Error> {
         match self.pending_error() {
             Some(e) => Err(e),
@@ -244,6 +256,7 @@ impl I2c1 {
     }
 
     /// The currently-pending I2C error, if any.
+    #[inline(always)]
     pub fn pending_error(&self) -> Option<Error> {
         if self.i2c.star1.af() {
             Some(Error::Acknowledge)
@@ -636,36 +649,43 @@ impl I2c1 {
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::I2C1 {
         self.i2c
     }
 
     /// Start condition generated (SB flag).
+    #[inline(always)]
     pub fn start_sent(&self) -> bool {
         self.i2c.star1.sb()
     }
 
     /// Address sent (ADDR flag).
+    #[inline(always)]
     pub fn address_sent(&self) -> bool {
         self.i2c.star1.addr()
     }
 
     /// 10-bit address header sent (ADD10 flag).
+    #[inline(always)]
     pub fn addr10_sent(&self) -> bool {
         self.i2c.star1.add10()
     }
 
     /// Send a START condition (from an interrupt handler).
+    #[inline(always)]
     pub fn start(&mut self) {
         self.i2c.ctlr1.set_start();
     }
 
     /// Send a STOP condition (from an interrupt handler).
+    #[inline(always)]
     pub fn stop(&mut self) {
         self.i2c.ctlr1.set_stop();
     }
 
     /// Enable or disable ACK generation for received bytes.
+    #[inline(always)]
     pub fn set_ack(&mut self, ack: bool) {
         if ack {
             self.i2c.ctlr1.set_ack();
@@ -675,6 +695,7 @@ impl I2c1 {
     }
 
     /// Set the ACK position for two-byte reception (`POS` bit).
+    #[inline(always)]
     pub fn set_ack_position(&mut self, second_last: bool) {
         if second_last {
             self.i2c.ctlr1.set_pos();
@@ -876,17 +897,20 @@ impl I2c1Slave {
     /// True while the master is requesting a read (slave transmitter
     /// direction). Only meaningful during the address phase, i.e. before
     /// [`listen`](Self::listen) clears ADDR.
+    #[inline(always)]
     pub fn read_requested(&self) -> bool {
         self.i2c.star2.tra()
     }
 
     /// True if a STOP condition was detected on the bus after a byte was
     /// acknowledged (slave mode).
+    #[inline(always)]
     pub fn stop_detected(&self) -> bool {
         self.i2c.star1.stopf()
     }
 
     /// Clear the stop-detection flag (read STAR1, then write CTLR1).
+    #[inline(always)]
     pub fn clear_stop(&mut self) {
         let _ = self.i2c.star1.read_bits();
         self.i2c.ctlr1.write_val(self.i2c.ctlr1.read_val());
@@ -894,6 +918,7 @@ impl I2c1Slave {
 
     /// True if an error flag (acknowledge failure, bus error or arbitration
     /// lost) is set.
+    #[inline(always)]
     pub fn has_error(&self) -> bool {
         self.i2c.star1.af() || self.i2c.star1.berr() || self.i2c.star1.arlo()
     }
@@ -902,11 +927,13 @@ impl I2c1Slave {
     ///
     /// Useful from an interrupt handler before calling
     /// [`clear_address`](Self::clear_address).
+    #[inline(always)]
     pub fn address_matched(&self) -> bool {
         self.i2c.star1.addr()
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::I2C1 {
         self.i2c
     }

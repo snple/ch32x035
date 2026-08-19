@@ -95,6 +95,7 @@ impl Pins {
     ///
     /// Only pins bonded out on the selected package (cargo feature) are
     /// accepted; this is checked at compile time.
+    #[inline]
     pub fn pa<const N: u32>(&self) -> Pin<0, N> {
         const {
             assert!(
@@ -109,6 +110,7 @@ impl Pins {
     ///
     /// Only pins bonded out on the selected package (cargo feature) are
     /// accepted; this is checked at compile time.
+    #[inline]
     pub fn pb<const N: u32>(&self) -> Pin<1, N> {
         const {
             assert!(
@@ -123,6 +125,7 @@ impl Pins {
     ///
     /// Only pins bonded out on the selected package (cargo feature) are
     /// accepted; this is checked at compile time.
+    #[inline]
     pub fn pc<const N: u32>(&self) -> Pin<2, N> {
         const {
             assert!(
@@ -147,11 +150,13 @@ unsafe impl<const PORT: u32, const N: u32> Send for Pin<PORT, N> {}
 
 impl<const PORT: u32, const N: u32> Pin<PORT, N> {
     /// The pin number
+    #[inline]
     pub const fn pin_number() -> u32 {
         N
     }
 
     /// The port number (0 = A, 1 = B, 2 = C)
+    #[inline]
     pub const fn port_number() -> u32 {
         PORT
     }
@@ -259,6 +264,7 @@ macro_rules! impl_pin {
                 }
 
                 /// Set the CNF/MODE fields using the PAC accessors.
+                #[inline(always)]
                 fn set_config(cnf: u32, mode: u32) {
                     let regs = Self::regs();
                     regs.$cfg.[<write_mode $n>](mode);
@@ -270,6 +276,7 @@ macro_rules! impl_pin {
                 // =========================================================
 
                 /// Configure the pin as a push-pull output
+                #[inline]
                 pub fn into_output(&mut self) {
                     Self::set_config(CNF_OUTPUT_PUSHPULL, MODE_OUTPUT);
                 }
@@ -281,6 +288,7 @@ macro_rules! impl_pin {
                 /// open-drain, so this single configuration covers all
                 /// on-chip peripherals; the chip has no separate open-drain
                 /// alternate-function mode.
+                #[inline]
                 pub fn into_alt_push_pull(&mut self) {
                     Self::set_config(CNF_ALT_PUSHPULL, MODE_OUTPUT);
                 }
@@ -319,11 +327,13 @@ macro_rules! impl_pin {
                 // =========================================================
 
                 /// Configure the pin as a floating input
+                #[inline]
                 pub fn into_input(&mut self) {
                     Self::set_config(CNF_INPUT_FLOATING, MODE_INPUT);
                 }
 
                 /// Configure the pin as a pull-up input
+                #[inline]
                 pub fn into_input_pullup(&mut self) {
                     Self::set_config(CNF_INPUT_PULL, MODE_INPUT);
                     // Set the output data bit to select pull-up
@@ -335,12 +345,14 @@ macro_rules! impl_pin {
                 ///
                 /// Note: only PA0..=PA15 and PC16..=PC17 support a pull-down
                 /// resistor; on every other pin the pull-down is unavailable.
+                #[inline]
                 pub fn into_input_pulldown(&mut self) {
                     Self::set_config(CNF_INPUT_PULL, MODE_INPUT);
                     Self::regs().outdr.[<clr_odr $n>]();
                 }
 
                 /// Configure the pin as an analog input
+                #[inline]
                 pub fn into_analog(&mut self) {
                     Self::set_config(CNF_INPUT_ANALOG, MODE_INPUT);
                 }

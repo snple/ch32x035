@@ -34,11 +34,13 @@ pub trait DelayUs {
 
     /// Delay for `ms` milliseconds (generic fallback; `Delay` overrides this
     /// with the WCH SDK one-shot compare, CMP = n * p_ms).
+    #[inline]
     fn delay_ms(&self, ms: u32) {
         self.delay_us(ms.saturating_mul(1_000));
     }
 
     /// Delay for `secs` seconds
+    #[inline]
     fn delay_secs(&self, secs: u32) {
         self.delay_ms(secs.saturating_mul(1_000));
     }
@@ -72,10 +74,12 @@ impl Delay {
         delay
     }
 
+    #[inline(always)]
     fn regs(&self) -> &RegisterBlock {
         unsafe { &*SYST::PTR }
     }
 
+    #[inline(always)]
     fn disable_counter(&self) {
         let r = self.regs();
         r.ctlr.modify_bits(|v| v & !CTLR_STE);
@@ -112,15 +116,18 @@ impl Delay {
 }
 
 impl DelayUs for Delay {
+    #[inline]
     fn delay_us(&self, us: u32) {
         self.busy_wait(us.saturating_mul(self.p_us));
     }
 
+    #[inline]
     fn delay_ms(&self, ms: u32) {
         // One-shot compare exactly like the WCH SDK Delay_Ms: CMP = n * p_ms.
         self.busy_wait(ms.saturating_mul(self.p_ms));
     }
 
+    #[inline]
     fn delay_secs(&self, secs: u32) {
         self.busy_wait(secs.saturating_mul(self.p_ms).saturating_mul(1_000));
     }

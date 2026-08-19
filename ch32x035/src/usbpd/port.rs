@@ -59,21 +59,25 @@ impl Port {
     }
 
     /// Borrow the underlying transceiver (e.g. for CC configuration).
+    #[inline(always)]
     pub fn phy(&mut self) -> &mut Usbpd {
         &mut self.phy
     }
 
     /// Consume the link and return the underlying transceiver.
+    #[inline(always)]
     pub fn into_phy(self) -> Usbpd {
         self.phy
     }
 
     /// The outgoing Message ID (an even value `0, 2, ..., 14`).
+    #[inline]
     pub const fn msg_id(&self) -> u8 {
         self.msg_id
     }
 
     /// Reset the outgoing Message ID to 0 (e.g. after a fresh connection).
+    #[inline(always)]
     pub fn reset_msg_id(&mut self) {
         self.msg_id = 0;
     }
@@ -84,6 +88,7 @@ impl Port {
     /// [`Header::new`] with the role and spec builders). Every message
     /// received by [`receive`](Self::receive) is acknowledged automatically,
     /// unless it is itself a GoodCRC or an extended-message chunk.
+    #[inline]
     pub fn set_ack_header(&mut self, own: Header) {
         self.own = own;
     }
@@ -92,6 +97,7 @@ impl Port {
     ///
     /// Called automatically by [`receive`](Self::receive) and after every
     /// acknowledged send; call it explicitly before the first receive.
+    #[inline]
     pub fn start(&mut self) {
         // SAFETY: `rx` is a 'static, unaliased buffer. The DMA writes to it
         // only while receive mode is armed, and this module sequences every
@@ -164,6 +170,7 @@ impl Port {
     /// # Errors
     ///
     /// [`PdError::NoAck`] if no GoodCRC is received after the retries.
+    #[inline]
     pub fn send_message(
         &mut self,
         msg: &Message,
@@ -220,6 +227,7 @@ impl Port {
     /// fields come from `own` (typically your power/data role and spec
     /// revision). No GoodCRC is expected in return; the receive path is left
     /// in TX mode, so call [`start`](Self::start) to resume receiving.
+    #[inline]
     pub fn send_goodcrc(
         &mut self,
         rx_header: u16,
@@ -242,6 +250,7 @@ impl Port {
     /// extended-message chunks (which must be acknowledged on SOP') are
     /// skipped; extended-message users should call
     /// [`send_goodcrc`](Self::send_goodcrc) themselves with the right SOP.
+    #[inline]
     fn ack(&mut self, rx_header: u16, delay: &impl DelayUs) {
         let header = Header::from_bits(rx_header);
         if header.message_type() == ControlMessage::GoodCrc as u8 || header.extended() {

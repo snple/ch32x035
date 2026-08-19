@@ -140,21 +140,25 @@ impl PdSink {
     }
 
     /// The current state.
+    #[inline(always)]
     pub fn state(&self) -> SinkState {
         self.state
     }
 
     /// The CC port that is connected.
+    #[inline(always)]
     pub fn cc_port(&self) -> CcPort {
         self.cc_port
     }
 
     /// The voltage (mV) that was requested.
+    #[inline(always)]
     pub fn requested_mv(&self) -> u16 {
         self.requested_mv
     }
 
     /// The current (mA) that was requested.
+    #[inline(always)]
     pub fn requested_ma(&self) -> u16 {
         self.requested_ma
     }
@@ -163,11 +167,13 @@ impl PdSink {
     ///
     /// Valid once the state is [`NeedRequest`](SinkState::NeedRequest) or
     /// later.
+    #[inline(always)]
     pub fn pdo_count(&self) -> u8 {
         self.pdo_count
     }
 
     /// The `i`-th advertised PDO (0-based), if any.
+    #[inline]
     pub fn pdo(&self, i: usize) -> Option<Pdo> {
         if i < self.pdo_count as usize {
             Some(self.pdo[i])
@@ -224,6 +230,7 @@ impl PdSink {
 
     /// Consume the engine and return the underlying [`Port`], so the link can
     /// be reused for another role.
+    #[inline(always)]
     pub fn into_port(self) -> Port {
         self.link
     }
@@ -518,21 +525,25 @@ impl PdSource {
     }
 
     /// The current state.
+    #[inline(always)]
     pub fn state(&self) -> SourceState {
         self.state
     }
 
     /// The CC port that is connected.
+    #[inline(always)]
     pub fn cc_port(&self) -> CcPort {
         self.cc_port
     }
 
     /// The PDO position requested by the sink (0 if none yet).
+    #[inline(always)]
     pub fn requested_position(&self) -> u8 {
         self.requested_position
     }
 
     /// The advertised PDO requested by the sink, if any.
+    #[inline]
     pub fn requested_pdo(&self) -> Option<Pdo> {
         if self.requested_position == 0 {
             return None;
@@ -543,11 +554,13 @@ impl PdSource {
     }
 
     /// The output voltage (mV) requested by the sink (0 if none yet).
+    #[inline(always)]
     pub fn requested_mv(&self) -> u16 {
         self.requested_mv
     }
 
     /// The output current (mA) requested by the sink (0 if none yet).
+    #[inline(always)]
     pub fn requested_ma(&self) -> u16 {
         self.requested_ma
     }
@@ -564,6 +577,7 @@ impl PdSource {
 
     /// Consume the engine and return the underlying [`Port`], so the link can
     /// be reused for another role.
+    #[inline(always)]
     pub fn into_port(self) -> Port {
         self.link
     }

@@ -24,6 +24,7 @@ pub struct Awu {
 
 impl Awu {
     /// Create a new AWU driver. AWU has no clock gate on the CH32X035.
+    #[inline]
     pub fn new(awu: pac::AWU) -> Self {
         Self { awu }
     }
@@ -42,16 +43,19 @@ impl Awu {
     }
 
     /// Enable the auto-wakeup function.
+    #[inline(always)]
     pub fn enable(&mut self) {
         self.awu.r16_awu_csr.set_awuen();
     }
 
     /// Disable the auto-wakeup function.
+    #[inline(always)]
     pub fn disable(&mut self) {
         self.awu.r16_awu_csr.clr_awuen();
     }
 
     /// Check whether the auto-wakeup is enabled.
+    #[inline(always)]
     pub fn is_enabled(&self) -> bool {
         self.awu.r16_awu_csr.awuen()
     }
@@ -60,16 +64,19 @@ impl Awu {
     ///
     /// Higher values give longer wake-up periods. See the WCH SDK
     /// `AWU_Prescaler_x` definitions (1, 2, 4, ... 61440).
+    #[inline(always)]
     pub fn set_prescaler(&mut self, tbr: u8) {
         self.awu.r16_awu_psc.write_awu_tbr((tbr & 0x0F) as u32);
     }
 
     /// Set the wake-up window value (`AWU_APR`, low 6 bits).
+    #[inline(always)]
     pub fn set_window(&mut self, apr: u8) {
         self.awu.r16_awu_wr.write_awu_apr((apr & 0x3F) as u32);
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::AWU {
         self.awu
     }

@@ -68,51 +68,61 @@ macro_rules! impl_timer {
             /// Set the prescaler value (`PSC`).
             ///
             /// The counter clock is `PCLK1 / (PSC + 1)`.
+            #[inline(always)]
             pub fn set_prescaler(&mut self, psc: u16) {
                 self.tim.psc.write_psc(psc as u32);
             }
 
             /// Set the auto-reload (period) value (`ATRLR`).
+            #[inline(always)]
             pub fn set_period(&mut self, period: u16) {
                 self.tim.atrlr.write_atrlr(period as u32);
             }
 
             /// Start the counter.
+            #[inline(always)]
             pub fn start(&mut self) {
                 self.tim.ctlr1.set_cen();
             }
 
             /// Stop the counter.
+            #[inline(always)]
             pub fn stop(&mut self) {
                 self.tim.ctlr1.clr_cen();
             }
 
             /// Read the current counter value.
+            #[inline(always)]
             pub fn count(&self) -> u16 {
                 self.tim.cnt.cnt() as u16
             }
 
             /// Clear the update interrupt flag.
+            #[inline(always)]
             pub fn clear_update_flag(&mut self) {
                 self.tim.intfr.write_bits(pac::$module::Intfr::UIF);
             }
 
             /// Check whether the update interrupt flag is set.
+            #[inline(always)]
             pub fn is_update_flag(&self) -> bool {
                 self.tim.intfr.read_bits() & pac::$module::Intfr::UIF != 0
             }
 
             /// Enable the update interrupt.
+            #[inline(always)]
             pub fn enable_update_interrupt(&mut self) {
                 self.tim.dmaintenr.set_uie();
             }
 
             /// Disable the update interrupt.
+            #[inline(always)]
             pub fn disable_update_interrupt(&mut self) {
                 self.tim.dmaintenr.clr_uie();
             }
 
             /// Consume the driver and return the underlying peripheral.
+            #[inline(always)]
             pub fn release(self) -> $periph {
                 self.tim
             }
@@ -165,16 +175,19 @@ macro_rules! impl_timer_pwm {
             }
 
             /// Start the counter (must be called before PWM is output).
+            #[inline(always)]
             pub fn start(&mut self) {
                 self.tim.ctlr1.set_cen();
             }
 
             /// Stop the counter.
+            #[inline(always)]
             pub fn stop(&mut self) {
                 self.tim.ctlr1.clr_cen();
             }
 
             /// Set the auto-reload (period) value.
+            #[inline(always)]
             pub fn set_period(&mut self, arr: u16) {
                 self.tim.atrlr.write_atrlr(arr as u32);
             }
@@ -220,21 +233,25 @@ macro_rules! impl_timer_pwm {
             }
 
             /// Set the compare value of channel 1.
+            #[inline(always)]
             pub fn set_ch1_compare(&mut self, compare: u16) {
                 self.tim.ch1cvr.write_ch1cvr(compare as u32);
             }
 
             /// Set the compare value of channel 2.
+            #[inline(always)]
             pub fn set_ch2_compare(&mut self, compare: u16) {
                 self.tim.ch2cvr.write_ch2cvr(compare as u32);
             }
 
             /// Set the compare value of channel 3.
+            #[inline(always)]
             pub fn set_ch3_compare(&mut self, compare: u16) {
                 self.tim.ch3cvr.write_ch3cvr(compare as u32);
             }
 
             /// Set the compare value of channel 4.
+            #[inline(always)]
             pub fn set_ch4_compare(&mut self, compare: u16) {
                 self.tim.ch4cvr.write_ch4cvr(compare as u32);
             }
@@ -279,16 +296,19 @@ macro_rules! impl_timer_pwm {
             /// The dead-time in clock cycles follows the CH32X035 BDTR
             /// encoding: `0..=127` maps directly to 0..127 cycles, while
             /// `128..=255` scales with the timer clock divider.
+            #[inline(always)]
             pub fn set_dead_time(&mut self, dtg: u8) {
                 self.tim.bdtr.write_dtg(dtg as u32);
             }
 
             /// Enable the break input (`BDTR.BKE`).
+            #[inline(always)]
             pub fn enable_break(&mut self) {
                 self.tim.bdtr.set_bke();
             }
 
             /// Disable the break input.
+            #[inline(always)]
             pub fn disable_break(&mut self) {
                 self.tim.bdtr.clr_bke();
             }
@@ -307,22 +327,26 @@ macro_rules! impl_timer_pwm {
 
             /// Enable automatic output re-enable after a break event
             /// (`BDTR.AOE`).
+            #[inline(always)]
             pub fn enable_auto_output(&mut self) {
                 self.tim.bdtr.set_aoe();
             }
 
             /// Enable one-pulse mode (`CTLR1.OPM`): the counter stops at the
             /// next update event instead of wrapping around.
+            #[inline(always)]
             pub fn enable_one_pulse(&mut self) {
                 self.tim.ctlr1.set_opm();
             }
 
             /// Disable one-pulse mode.
+            #[inline(always)]
             pub fn disable_one_pulse(&mut self) {
                 self.tim.ctlr1.clr_opm();
             }
 
             /// Consume the driver and return the underlying peripheral.
+            #[inline(always)]
             pub fn release(self) -> $periph {
                 self.tim
             }
@@ -379,21 +403,25 @@ macro_rules! impl_timer_capture {
             }
 
             /// Set the prescaler value (`PSC`).
+            #[inline(always)]
             pub fn set_prescaler(&mut self, psc: u16) {
                 self.tim.psc.write_psc(psc as u32);
             }
 
             /// Set the auto-reload (period) value (`ATRLR`).
+            #[inline(always)]
             pub fn set_period(&mut self, arr: u16) {
                 self.tim.atrlr.write_atrlr(arr as u32);
             }
 
             /// Start the counter.
+            #[inline(always)]
             pub fn start(&mut self) {
                 self.tim.ctlr1.set_cen();
             }
 
             /// Stop the counter.
+            #[inline(always)]
             pub fn stop(&mut self) {
                 self.tim.ctlr1.clr_cen();
             }
@@ -446,56 +474,67 @@ macro_rules! impl_timer_capture {
             }
 
             /// Read the channel 1 capture value.
+            #[inline(always)]
             pub fn capture_ch1(&self) -> u16 {
                 self.tim.ch1cvr.ch1cvr() as u16
             }
 
             /// Read the channel 2 capture value.
+            #[inline(always)]
             pub fn capture_ch2(&self) -> u16 {
                 self.tim.ch2cvr.ch2cvr() as u16
             }
 
             /// Check whether the channel 1 capture flag is set.
+            #[inline(always)]
             pub fn is_capture_flag_ch1(&self) -> bool {
                 self.tim.intfr.cc1if()
             }
 
             /// Check whether the channel 2 capture flag is set.
+            #[inline(always)]
             pub fn is_capture_flag_ch2(&self) -> bool {
                 self.tim.intfr.cc2if()
             }
 
             /// Clear the channel 1 capture flag.
+            #[inline(always)]
             pub fn clear_capture_flag_ch1(&mut self) {
                 self.tim.intfr.write_bits(pac::$module::Intfr::CC1IF);
             }
 
             /// Clear the channel 2 capture flag.
+            #[inline(always)]
             pub fn clear_capture_flag_ch2(&mut self) {
                 self.tim.intfr.write_bits(pac::$module::Intfr::CC2IF);
             }
 
             /// Enable the channel 1 capture interrupt.
+            #[inline(always)]
             pub fn enable_ch1_interrupt(&mut self) {
                 self.tim.dmaintenr.set_cc1ie();
             }
 
             /// Disable the channel 1 capture interrupt.
+            #[inline(always)]
             pub fn disable_ch1_interrupt(&mut self) {
                 self.tim.dmaintenr.clr_cc1ie();
             }
 
             /// Enable the channel 2 capture interrupt.
+            #[inline(always)]
             pub fn enable_ch2_interrupt(&mut self) {
                 self.tim.dmaintenr.set_cc2ie();
             }
 
             /// Disable the channel 2 capture interrupt.
+            #[inline(always)]
             pub fn disable_ch2_interrupt(&mut self) {
                 self.tim.dmaintenr.clr_cc2ie();
             }
 
             /// Consume the driver and return the underlying peripheral.
+            #[inline(always)]
             pub fn release(self) -> $periph {
                 self.tim
             }
@@ -556,21 +595,25 @@ macro_rules! impl_timer_encoder {
             }
 
             /// Start the counter.
+            #[inline(always)]
             pub fn start(&mut self) {
                 self.tim.ctlr1.set_cen();
             }
 
             /// Stop the counter.
+            #[inline(always)]
             pub fn stop(&mut self) {
                 self.tim.ctlr1.clr_cen();
             }
 
             /// Read the current encoder count.
+            #[inline(always)]
             pub fn count(&self) -> u16 {
                 self.tim.cnt.cnt() as u16
             }
 
             /// Current counting direction.
+            #[inline]
             pub fn direction(&self) -> EncoderDirection {
                 if self.tim.ctlr1.dir() {
                     EncoderDirection::Down
@@ -580,26 +623,31 @@ macro_rules! impl_timer_encoder {
             }
 
             /// Clear the update interrupt flag.
+            #[inline(always)]
             pub fn clear_update_flag(&mut self) {
                 self.tim.intfr.write_bits(pac::$module::Intfr::UIF);
             }
 
             /// Check whether the update interrupt flag is set.
+            #[inline(always)]
             pub fn is_update_flag(&self) -> bool {
                 self.tim.intfr.uif()
             }
 
             /// Enable the update interrupt.
+            #[inline(always)]
             pub fn enable_update_interrupt(&mut self) {
                 self.tim.dmaintenr.set_uie();
             }
 
             /// Disable the update interrupt.
+            #[inline(always)]
             pub fn disable_update_interrupt(&mut self) {
                 self.tim.dmaintenr.clr_uie();
             }
 
             /// Consume the driver and return the underlying peripheral.
+            #[inline(always)]
             pub fn release(self) -> $periph {
                 self.tim
             }

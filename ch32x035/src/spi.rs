@@ -42,6 +42,7 @@ pub enum BaudDiv {
 }
 
 impl BaudDiv {
+    #[inline]
     const fn br_value(self) -> u32 {
         match self {
             BaudDiv::Div2 => 0b000,
@@ -295,6 +296,7 @@ impl Spi1 {
     }
 
     /// Set the first-bit order (`true` = LSB first, `false` = MSB first).
+    #[inline]
     pub fn set_first_bit_lsb(&mut self, lsb_first: bool) {
         if lsb_first {
             self.spi.ctlr1.set_lsbfirst();
@@ -304,12 +306,14 @@ impl Spi1 {
     }
 
     /// Enable CRC generation with the given polynomial.
+    #[inline]
     pub fn enable_crc(&mut self, polynomial: u8) {
         self.spi.crcr.write_crcpoly(polynomial as u32);
         self.spi.ctlr1.set_crcen();
     }
 
     /// Disable CRC generation.
+    #[inline(always)]
     pub fn disable_crc(&mut self) {
         self.spi.ctlr1.clr_crcen();
     }
@@ -318,22 +322,29 @@ impl Spi1 {
     ///
     /// Call this after clocking out the last data word so the hardware appends
     /// the CRC.
+    #[inline(always)]
     pub fn send_crc(&mut self) {
         self.spi.ctlr1.set_crcnext();
     }
 
     /// Read the TX CRC register.
+    #[inline(always)]
     pub fn read_tx_crc(&self) -> u16 {
         self.spi.tcrcr.txcrc() as u16
     }
 
     /// Read the RX CRC register.
+    #[inline(always)]
     pub fn read_rx_crc(&self) -> u16 {
         self.spi.rcrcr.rxcrc() as u16
     }
 
     /// Transmit `data` using DMA.
-    pub fn write_dma<const CH: u8>(&mut self, ch: &DmaChannel<CH>, data: &[u8]) -> Result<(), Error> {
+    pub fn write_dma<const CH: u8>(
+        &mut self,
+        ch: &DmaChannel<CH>,
+        data: &[u8],
+    ) -> Result<(), Error> {
         self.spi.ctlr2.set_txdmaen();
         ch.start(
             DmaDir::MemoryToPeripheral,
@@ -351,7 +362,11 @@ impl Spi1 {
     }
 
     /// Receive into `data` using DMA.
-    pub fn read_dma<const CH: u8>(&mut self, ch: &DmaChannel<CH>, data: &mut [u8]) -> Result<(), Error> {
+    pub fn read_dma<const CH: u8>(
+        &mut self,
+        ch: &DmaChannel<CH>,
+        data: &mut [u8],
+    ) -> Result<(), Error> {
         self.spi.ctlr2.set_rxdmaen();
         ch.start(
             DmaDir::PeripheralToMemory,
@@ -367,6 +382,7 @@ impl Spi1 {
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::SPI1 {
         self.spi
     }

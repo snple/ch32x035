@@ -23,6 +23,7 @@ pub struct Esig {
 
 impl Esig {
     /// Create a new ESIG driver.
+    #[inline]
     pub fn new(esig: pac::ESIG) -> Self {
         Self { esig }
     }
@@ -41,6 +42,7 @@ impl Esig {
     }
 
     /// The 96-bit unique device identifier (three 32-bit words).
+    #[inline]
     pub fn unique_id(&self) -> [u32; 3] {
         [
             self.esig.uniid1.read_bits(),
@@ -50,11 +52,13 @@ impl Esig {
     }
 
     /// The flash size in kilobytes.
+    #[inline(always)]
     pub fn flash_size_kb(&self) -> u16 {
         self.esig.flacap.f_size() as u16
     }
 
     /// Consume the driver and return the underlying peripheral.
+    #[inline(always)]
     pub fn release(self) -> pac::ESIG {
         self.esig
     }
