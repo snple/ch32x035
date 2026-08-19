@@ -15,6 +15,10 @@ name = "blink"
 path = "src/blink.rs"
 
 [[bin]]
+name = "bind_demo"
+path = "src/bind_demo.rs"
+
+[[bin]]
 name = "hello_uart"
 path = "src/hello_uart.rs"
 

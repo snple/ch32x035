@@ -90,6 +90,18 @@ pub fn bind_impl(args: TokenStream, input: TokenStream) -> TokenStream {
     let fn_vis = &f.vis;
     let fn_attrs = &f.attrs;
 
+    // The ISR is invoked by hardware with no arguments.  Reject anything else
+    // here — the previous implementation silently dropped the signature, which
+    // produced confusing "cannot find value" errors inside the body.
+    if !f.sig.inputs.is_empty() {
+        return syn::Error::new_spanned(
+            &f.sig,
+            "#[bind] handler must have signature `fn()` (no arguments)",
+        )
+        .to_compile_error()
+        .into();
+    }
+
     let irq_name_str = irq_name.to_string();
 
     // Validate the interrupt name against the known CH32X035 interrupt set.
@@ -105,22 +117,14 @@ pub fn bind_impl(args: TokenStream, input: TokenStream) -> TokenStream {
         .into();
     }
 
-    // Generate the interrupt handler: export the user function with the
-    // interrupt's symbol name (overriding the weak `device.x` provide).
-    let expanded = quote! {
-        #(#fn_attrs)*
-        #[allow(non_snake_case)]
-        #fn_vis fn #irq_name() {
-            #fn_body
-        }
-
-        #[allow(non_snake_case)]
-        #[doc(hidden)]
+    // The function itself is the ISR (no trampoline), so `#[ramfunc]` keeps the
+    // whole interrupt path in RAM.  The vector table stores handlers as
+    // `unsafe extern "C" fn()`, hence the C ABI.  Exporting the function with
+    // the IRQ's symbol name overrides the weak `device.x` provide.
+    quote! {
         #[unsafe(export_name = #irq_name_str)]
-        pub unsafe extern "C" fn #user_fn_name() {
-            #irq_name()
-        }
-    };
-
-    expanded.into()
+        #(#fn_attrs)*
+        #fn_vis unsafe extern "C" fn #user_fn_name() #fn_body
+    }
+    .into()
 }
