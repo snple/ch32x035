@@ -115,7 +115,6 @@ version = "0.1.0"
 dependencies = [
  "ch32x035",
  "ch32x035-rtos-macro",
- "critical-section",
 ]
 
 [[package]]

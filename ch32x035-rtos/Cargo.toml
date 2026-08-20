@@ -1,0 +1,16 @@
+[package]
+name = "ch32x035-rtos"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Cooperative multitasking kernel for the CH32X035 (RISC-V QingKe V4C)"
+keywords = ["ch32x035", "wch", "rtos", "scheduler", "embedded", "no-std"]
+categories = ["embedded", "hardware-support", "no-std"]
+
+[dependencies]
+ch32x035 = { workspace = true, default-features = false, features = ["critical-section-impl"] }
+ch32x035-rtos-macro.workspace = true
+
+[package.metadata.docs.rs]
+features = ["critical-section-impl"]
+targets = ["riscv32imac-unknown-none-elf"]

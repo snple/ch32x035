@@ -8,13 +8,13 @@
 ///
 /// ```ignore
 /// use ch32x035::kit::ring_buffer::RingBuffer;
-/// use critical_section::Mutex;
+/// use ch32x035::interrupt::{self, Mutex};
 /// use core::cell::RefCell;
 ///
 /// static RX: Mutex<RefCell<RingBuffer<64>>> = Mutex::new(RefCell::new(RingBuffer::new()));
 ///
 /// fn isr() {
-///     critical_section::with(|cs| RX.borrow_ref_mut(cs).push(byte));
+///     interrupt::free(|cs| RX.borrow(cs).borrow_mut().push(byte));
 /// }
 /// ```
 pub struct RingBuffer<const N: usize> {
