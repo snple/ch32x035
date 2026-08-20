@@ -13,6 +13,11 @@ fn main() {
     // workspace-wide `.cargo/config.toml` leaves the HAL defmt-agnostic.
     println!("cargo:rustc-link-arg=-Tdefmt.x");
 
+    // Link the ch32x035-rtos task-table script (`rtos.x`), provided via
+    // `rustc-link-search` by the `ch32x035-rtos` build script. Only the
+    // rtos examples need this; it defines the empty `.rtos.tasks` section.
+    println!("cargo:rustc-link-arg=-Trtos.x");
+
     // The file `memory.x` defines the FLASH and RAM regions for the CH32X035
     let memory_x = include_bytes!("memory.x");
     let mut f = File::create(out.join("memory.x")).unwrap();

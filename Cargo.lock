@@ -84,6 +84,7 @@ dependencies = [
  "ch32x035",
  "ch32x035-pac",
  "ch32x035-rt",
+ "ch32x035-rtos",
  "defmt",
  "defmt-rtt",
 ]
@@ -107,6 +108,24 @@ dependencies = [
 [[package]]
 name = "ch32x035-rt"
 version = "0.1.0"
+
+[[package]]
+name = "ch32x035-rtos"
+version = "0.1.0"
+dependencies = [
+ "ch32x035",
+ "ch32x035-rtos-macro",
+ "critical-section",
+]
+
+[[package]]
+name = "ch32x035-rtos-macro"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 3.0.3",
+]
 
 [[package]]
 name = "clap"

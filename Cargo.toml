@@ -7,6 +7,8 @@ members = [
     "ch32x035-macro",
     "ch32x035-rt",
     "ch32x035-examples",
+    "ch32x035-rtos",
+    "ch32x035-rtos-macro",
 ]
 
 [workspace.package]
@@ -34,6 +36,8 @@ ch32x035 = { path = "ch32x035", default-features = false }
 ch32x035-rt = { path = "ch32x035-rt" }
 ch32x035-pac = { path = "ch32x035-pac" }
 ch32x035-macro = { path = "ch32x035-macro" }
+ch32x035-rtos = { path = "ch32x035-rtos", default-features = false }
+ch32x035-rtos-macro = { path = "ch32x035-rtos-macro" }
 
 critical-section = { version = "1.2", features = ["restore-state-u32"] }
 

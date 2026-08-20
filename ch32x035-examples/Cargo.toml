@@ -42,6 +42,18 @@ path = "src/usbpd_dual.rs"
 name = "usbpd_sniffer"
 path = "src/usbpd_sniffer.rs"
 
+[[bin]]
+name = "rtos_min"
+path = "src/rtos_min.rs"
+
+[[bin]]
+name = "rtos_demo"
+path = "src/rtos_demo.rs"
+
+[[bin]]
+name = "systick_test"
+path = "src/systick_test.rs"
+
 [dependencies]
 # Select the CH32X035 sub-model here (see ch32x035::package). The examples
 # target the CH32X035F8U6 (QFN20), the most widely used part; change this to
@@ -49,6 +61,7 @@ path = "src/usbpd_sniffer.rs"
 ch32x035 = { workspace = true, default-features = false, features = ["defmt", "critical-section-impl", "panic-handler", "ch32x035f8u6"] }
 ch32x035-pac.workspace = true
 ch32x035-rt.workspace = true
+ch32x035-rtos = { workspace = true, default-features = false }
 defmt = { workspace = true }
 defmt-rtt = { workspace = true }
 

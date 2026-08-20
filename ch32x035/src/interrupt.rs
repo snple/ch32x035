@@ -99,7 +99,7 @@ where
 /// Acquire a critical section and return the restore state
 ///
 /// Saves `mstatus`, disables global interrupts and increments the nesting
-/// counter. The returned state restores `mstatus` on the outermost release.
+/// counter. The returned state restores `mstatus` on release.
 ///
 /// # Safety
 ///
@@ -109,23 +109,28 @@ pub unsafe fn cs_acquire() -> RawRestoreState {
     let mstatus = crate::rt::register::mstatus::read_raw();
     crate::rt::interrupt::disable();
 
-    let prev = CS_NESTING.fetch_add(1, Ordering::AcqRel);
-    if prev == 0 { mstatus } else { 0 }
+    // Note: we always return the saved `mstatus` as the restore state, even
+    // when nested. Nested releases restore their own (already-disabled)
+    // mstatus, which keeps interrupts off until the outermost release, so
+    // LIFO ordering remains correct. This is essential for RTOS use, where
+    // a task switch inside a critical section leaves the nesting counter in
+    // a state that would otherwise prevent the outer release from ever
+    // restoring mstatus.
+    let _ = CS_NESTING.fetch_add(1, Ordering::AcqRel);
+    mstatus
 }
 
 /// Release a critical section using the state from [`cs_acquire`]
 ///
-/// Decrements the nesting counter; on the outermost release restores the
-/// saved `mstatus` (re-enabling interrupts if they were enabled).
+/// Decrements the nesting counter and always restores the saved `mstatus`
+/// (re-enabling interrupts if they were enabled before the acquire).
 ///
 /// # Safety
 ///
 /// `state` must come from a matching [`cs_acquire`] call.
 #[inline]
 pub unsafe fn cs_release(state: RawRestoreState) {
-    let prev = CS_NESTING.fetch_sub(1, Ordering::AcqRel);
-    if prev == 1 {
-        // SAFETY: restoring a previously-saved mstatus value.
-        unsafe { crate::rt::register::mstatus::write_raw(state) };
-    }
+    let _ = CS_NESTING.fetch_sub(1, Ordering::AcqRel);
+    // SAFETY: restoring a previously-saved mstatus value.
+    unsafe { crate::rt::register::mstatus::write_raw(state) };
 }
