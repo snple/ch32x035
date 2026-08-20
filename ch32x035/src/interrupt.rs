@@ -14,15 +14,42 @@
 //! });
 //! ```
 
-use core::sync::atomic::{AtomicU8, Ordering};
+use core::arch::asm;
 
 use critical_section::{CriticalSection, RawRestoreState};
 
 use crate::pac::Interrupt;
 use crate::rt::peripheral::PFIC;
 
-/// Critical-section nesting counter.
-static CS_NESTING: AtomicU8 = AtomicU8::new(0);
+/// Read the WCH global-interrupt gate (CSR 0x800).
+///
+/// Bit 3 is the global interrupt enable, bit 7 the saved enable state used
+/// by `mret` to restore interrupts after an ISR. This is the register the
+/// WCH SDK `__enable_irq` / `__disable_irq` operate on.
+#[inline]
+fn read_gintenr() -> u32 {
+    let value: u32;
+    unsafe {
+        asm!(
+            "csrr {0}, 0x800",
+            out(reg) value,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    value
+}
+
+/// Write the WCH global-interrupt gate (CSR 0x800).
+#[inline]
+unsafe fn write_gintenr(value: u32) {
+    unsafe {
+        asm!(
+            "csrw 0x800, {0}",
+            in(reg) value,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+}
 
 /// Enable an interrupt
 #[inline]
@@ -98,39 +125,33 @@ where
 
 /// Acquire a critical section and return the restore state
 ///
-/// Saves `mstatus`, disables global interrupts and increments the nesting
-/// counter. The returned state restores `mstatus` on release.
+/// Saves the WCH global-interrupt gate (CSR 0x800) and disables global
+/// interrupts. The returned state restores the gate on release.
+///
+/// The save/restore is symmetric (same CSR on both paths), so nesting works
+/// naturally: an inner acquire observes an already-disabled gate, restores it
+/// on its release, and the outer release restores the originally-enabled gate.
 ///
 /// # Safety
 ///
 /// The returned state must be passed to [`cs_release`].
 #[inline]
 pub unsafe fn cs_acquire() -> RawRestoreState {
-    let mstatus = crate::rt::register::mstatus::read_raw();
+    let state = read_gintenr();
     crate::rt::interrupt::disable();
-
-    // Note: we always return the saved `mstatus` as the restore state, even
-    // when nested. Nested releases restore their own (already-disabled)
-    // mstatus, which keeps interrupts off until the outermost release, so
-    // LIFO ordering remains correct. This is essential for RTOS use, where
-    // a task switch inside a critical section leaves the nesting counter in
-    // a state that would otherwise prevent the outer release from ever
-    // restoring mstatus.
-    let _ = CS_NESTING.fetch_add(1, Ordering::AcqRel);
-    mstatus
+    state
 }
 
 /// Release a critical section using the state from [`cs_acquire`]
 ///
-/// Decrements the nesting counter and always restores the saved `mstatus`
-/// (re-enabling interrupts if they were enabled before the acquire).
+/// Restores the saved WCH global-interrupt gate, re-enabling interrupts if
+/// they were enabled before the matching acquire.
 ///
 /// # Safety
 ///
 /// `state` must come from a matching [`cs_acquire`] call.
 #[inline]
 pub unsafe fn cs_release(state: RawRestoreState) {
-    let _ = CS_NESTING.fetch_sub(1, Ordering::AcqRel);
-    // SAFETY: restoring a previously-saved mstatus value.
-    unsafe { crate::rt::register::mstatus::write_raw(state) };
+    // SAFETY: restoring a previously-saved gate value.
+    unsafe { write_gintenr(state) };
 }

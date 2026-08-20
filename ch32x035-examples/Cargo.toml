@@ -42,18 +42,6 @@ path = "src/usbpd_dual.rs"
 name = "usbpd_sniffer"
 path = "src/usbpd_sniffer.rs"
 
-[[bin]]
-name = "rtos_min"
-path = "src/rtos_min.rs"
-
-[[bin]]
-name = "rtos_demo"
-path = "src/rtos_demo.rs"
-
-[[bin]]
-name = "systick_test"
-path = "src/systick_test.rs"
-
 [dependencies]
 # Select the CH32X035 sub-model here (see ch32x035::package). The examples
 # target the CH32X035F8U6 (QFN20), the most widely used part; change this to
