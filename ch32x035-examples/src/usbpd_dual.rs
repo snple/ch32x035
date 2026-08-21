@@ -21,14 +21,14 @@
 #![no_std]
 #![no_main]
 
-use defmt_rtt as _;
 use ch32x035_examples as _;
+use defmt_rtt as _;
 
 use ch32x035::gpio::Pins;
 use ch32x035::usbpd::{Pdo, Port, Request, Usbpd};
 use ch32x035::{
-    main, pac, Clocks, CorePeripherals, Delay, DelayUs, PdSink, PdSource, Rcc, SinkState,
-    SourceState,
+    Clocks, CorePeripherals, Delay, DelayUs, PdSink, PdSource, Rcc, SinkState, SourceState, main,
+    pac,
 };
 
 /// PD DMA buffers (4-byte aligned via `#[repr(align(4))]`).

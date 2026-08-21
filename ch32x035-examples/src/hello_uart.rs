@@ -10,7 +10,10 @@
 
 use defmt_rtt as _;
 
-use ch32x035::{main, pac, uart::{Config, Uart1}};
+use ch32x035::{
+    main, pac,
+    uart::{Config, Uart1},
+};
 use ch32x035_examples::board::Board;
 
 #[main]
@@ -27,12 +30,7 @@ fn main() -> ! {
 
     let mut board = Board::init(RCC, GPIOA, GPIOB, GPIOC);
 
-    let mut uart = Uart1::init(
-        USART1,
-        &mut board.rcc,
-        board.clocks,
-        Config::default(),
-    );
+    let mut uart = Uart1::init(USART1, &mut board.rcc, board.clocks, Config::default());
 
     let mut counter: u32 = 0;
     loop {
