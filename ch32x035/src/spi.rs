@@ -144,25 +144,6 @@ pub enum Error {
     Timeout,
 }
 
-/// Abstract SPI bus trait for driver implementations.
-///
-/// This keeps drivers decoupled from the concrete [`Spi1`] type.
-pub trait SpiBus {
-    /// Error type returned by the bus.
-    type Error;
-
-    /// Write multiple bytes (8-bit mode), discarding received data.
-    fn write(&mut self, data: &[u8]) -> Result<(), Self::Error>;
-
-    /// Read multiple bytes by clocking out dummy bytes (8-bit mode).
-    fn read(&mut self, data: &mut [u8]) -> Result<(), Self::Error>;
-
-    /// Full-duplex transfer: write and read simultaneously (8-bit mode).
-    ///
-    /// The transfer length is `min(read.len(), write.len())`.
-    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error>;
-}
-
 /// SPI1 master driver
 pub struct Spi1 {
     spi: pac::SPI1,
@@ -385,31 +366,5 @@ impl Spi1 {
     #[inline(always)]
     pub fn release(self) -> pac::SPI1 {
         self.spi
-    }
-}
-
-impl SpiBus for Spi1 {
-    type Error = Error;
-
-    fn write(&mut self, data: &[u8]) -> Result<(), Error> {
-        for &b in data {
-            self.try_transfer(b as u16)?;
-        }
-        Ok(())
-    }
-
-    fn read(&mut self, data: &mut [u8]) -> Result<(), Error> {
-        for slot in data.iter_mut() {
-            *slot = self.try_transfer(0)? as u8;
-        }
-        Ok(())
-    }
-
-    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Error> {
-        let len = read.len().min(write.len());
-        for i in 0..len {
-            read[i] = self.try_transfer(write[i] as u16)? as u8;
-        }
-        Ok(())
     }
 }

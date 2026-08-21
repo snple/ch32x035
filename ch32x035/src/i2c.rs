@@ -87,23 +87,6 @@ pub enum Error {
     Arbitration,
 }
 
-/// Abstract I2C master bus trait for driver implementations.
-///
-/// This keeps drivers decoupled from the concrete [`I2c1`] type.
-pub trait I2cBus {
-    /// Error type returned by the bus.
-    type Error;
-
-    /// Write `data` to the slave at 7-bit `addr`.
-    fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), Self::Error>;
-
-    /// Read `buffer.len()` bytes from the slave at 7-bit `addr`.
-    fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error>;
-
-    /// Write then (re)START and read (repeated-START transaction).
-    fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error>;
-}
-
 /// Generate the interrupt-support API shared by the I2C1 master and slave
 /// drivers.
 ///
@@ -706,22 +689,6 @@ impl I2c1 {
 }
 
 impl_i2c_interrupt!(I2c1);
-
-impl I2cBus for I2c1 {
-    type Error = Error;
-
-    fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), Error> {
-        self.try_write(addr, data)
-    }
-
-    fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Error> {
-        self.try_read(addr, buffer)
-    }
-
-    fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Error> {
-        self.try_write_read(addr, write, read)
-    }
-}
 
 /// Direction of an in-progress slave transaction, as reported by
 /// [`I2c1Slave::listen`].

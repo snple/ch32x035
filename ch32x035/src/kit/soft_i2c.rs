@@ -20,9 +20,9 @@
 //!   slave to release it, bounded by a configurable timeout ([`Config`]).
 //! - Mirrors the hardware [`I2c1`](crate::i2c::I2c1) API: `try_write` /
 //!   `try_read` / `try_write_read` return a [`Result`], while `write` / `read`
-//!   / `write_read` panic on error. [`SoftI2c`] also implements
-//!   [`I2cBus`](crate::i2c::I2cBus), so generic driver code can accept either
-//!   bus implementation.
+//!   / `write_read` panic on error. `SoftI2c` shares the same method signatures
+//!   as `I2c1`; if a caller needs a bus abstraction (e.g. an `I2cBus` trait),
+//!   it can define the trait itself and implement it for both types.
 //!
 //! # Example
 //!
@@ -419,27 +419,14 @@ impl<D: DelayUs> SoftI2c<D> {
     }
 }
 
+// Error mapping: `SoftI2c` errors convert into the hardware `I2c1` error type,
+// so callers can unify error handling (bus-abstraction traits are defined by
+// the caller if needed).
 impl From<Error> for crate::i2c::Error {
     fn from(e: Error) -> Self {
         match e {
             Error::Nack => Self::Acknowledge,
             Error::Timeout => Self::Timeout,
         }
-    }
-}
-
-impl<D: DelayUs> crate::i2c::I2cBus for SoftI2c<D> {
-    type Error = crate::i2c::Error;
-
-    fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), Self::Error> {
-        self.try_write(addr, data).map_err(Into::into)
-    }
-
-    fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error> {
-        self.try_read(addr, buffer).map_err(Into::into)
-    }
-
-    fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error> {
-        self.try_write_read(addr, write, read).map_err(Into::into)
     }
 }

@@ -195,34 +195,15 @@ pub enum Error { Timeout, Acknowledge, BusError, Arbitration } // I2C
 
 ---
 
-## 8. 驱动总线 trait
+## 8. 驱动解耦（总线 trait 由调用者提供）
 
-设备驱动只依赖 trait，不依赖具体类型（`&mut self`，因 ch32x035 驱动非共享）：
+HAL **不内置** `SpiBus` / `I2cBus` / `UartBus` 等总线抽象 trait：需要抽象时由
+调用者（驱动 crate 或最终应用）自行定义并实现。HAL 的具体类型（`Spi1`、
+`I2c1`、`Uart1`…）已暴露完整的方法签名（阻塞方法 + `try_*` 返回 `Result`），
+调用者可据此定义 trait 并为具体类型实现，或直接使用具体类型。
 
-```rust
-pub trait SpiBus {
-    type Error;
-    fn write(&mut self, data: &[u8]) -> Result<(), Self::Error>;
-    fn read(&mut self, data: &mut [u8]) -> Result<(), Self::Error>;
-    fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), Self::Error>;
-}
-pub trait I2cBus {
-    type Error;
-    fn write(&mut self, addr: u8, data: &[u8]) -> Result<(), Self::Error>;
-    fn read(&mut self, addr: u8, buffer: &mut [u8]) -> Result<(), Self::Error>;
-    fn write_read(&mut self, addr: u8, write: &[u8], read: &mut [u8]) -> Result<(), Self::Error>;
-}
-pub trait UartBus {
-    type Error;
-    fn write(&mut self, data: &[u8]) -> Result<(), Self::Error>;
-    fn read(&mut self, buffer: &mut [u8]) -> Result<(), Self::Error>;
-    fn flush(&mut self) -> Result<(), Self::Error>;
-}
-```
-
-实现用 `impl XxxBus for ConcreteType`，方法委托给 `try_*`。注意：具体类型上
-**同名阻塞方法（返回 `()`）会遮蔽 trait 方法（返回 `Result`）**——直接调用走
-阻塞语义，泛型 `<B: XxxBus>` 走 `Result` 语义，这是有意为之。
+注意：具体类型上**同名阻塞方法（返回 `()`）会遮蔽 trait 方法（返回 `Result`）**
+——直接调用走阻塞语义，泛型 `<B: XxxBus>` 走 `Result` 语义，这是有意为之。
 
 ### 中断支持约定（重要）
 
