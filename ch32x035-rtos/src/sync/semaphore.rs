@@ -55,6 +55,7 @@ impl Semaphore {
     }
 
     /// 给出一个计数，唤醒等待最久的阻塞任务（若有）。
+    #[inline(always)]
     pub fn give(&self) {
         crate::scheduler::sem_give(self);
     }
@@ -62,6 +63,7 @@ impl Semaphore {
     /// 从中断上下文给出一个计数。
     ///
     /// 可在中断处理函数中安全调用；只更新调度器状态，不切换任务。
+    #[inline(always)]
     pub fn give_from_isr(&self) {
         self.give();
     }
@@ -71,6 +73,7 @@ impl Semaphore {
     // ------------------------------------------------------------------
 
     /// 消费一个计数（若有）。
+    #[inline]
     pub(crate) fn try_take(&self) -> bool {
         unsafe {
             let c = &mut *self.count.get();
@@ -84,6 +87,7 @@ impl Semaphore {
     }
 
     /// 增加一个计数。
+    #[inline(always)]
     pub(crate) fn count_inc(&self) {
         unsafe {
             *self.count.get() += 1;
@@ -91,6 +95,7 @@ impl Semaphore {
     }
 
     /// 排队等待者数量。
+    #[inline]
     fn waiter_len(&self) -> u8 {
         unsafe {
             let head = *self.head.get();
@@ -104,6 +109,7 @@ impl Semaphore {
     }
 
     /// 把任务压入等待环。
+    #[inline]
     pub(crate) fn register_waiter(&self, id: u8) {
         unsafe {
             debug_assert!(
@@ -117,6 +123,7 @@ impl Semaphore {
     }
 
     /// 弹出等待最久的任务（若有）。
+    #[inline]
     pub(crate) fn pop_waiter(&self) -> Option<u8> {
         unsafe {
             let head = *self.head.get();

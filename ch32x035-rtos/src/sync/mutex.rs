@@ -62,6 +62,7 @@ impl<T> Mutex<T> {
     }
 
     /// 消费锁，取出内部数据（无需加锁）。
+    #[inline(always)]
     pub fn into_inner(self) -> T {
         self.data.into_inner()
     }
@@ -69,6 +70,7 @@ impl<T> Mutex<T> {
 
 impl<T: ?Sized> Mutex<T> {
     /// 获取锁，阻塞（让出）直到可用。返回 RAII 守卫，离开作用域自动解锁。
+    #[inline]
     pub fn lock(&self) -> MutexGuard<'_, T> {
         crate::scheduler::mutex_lock(&self.raw, 0);
         MutexGuard {
@@ -79,6 +81,7 @@ impl<T: ?Sized> Mutex<T> {
 
     /// 在 `timeout_ms` 内尝试获取锁（`None` = 永远）。
     /// 成功返回守卫，超时返回 `None`。
+    #[inline]
     pub fn try_lock(&self, timeout_ms: Option<u32>) -> Option<MutexGuard<'_, T>> {
         let deadline = timeout_ms
             .map(|ms| crate::scheduler::tick_now().wrapping_add(ms))
@@ -94,6 +97,7 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     /// 返回底层数据的可变引用（无需加锁；要求 `&mut self` 独占）。
+    #[inline(always)]
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
@@ -123,6 +127,7 @@ impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
 }
 
 impl<T: ?Sized> Drop for MutexGuard<'_, T> {
+    #[inline(always)]
     fn drop(&mut self) {
         crate::scheduler::mutex_unlock(&self.mutex.raw);
     }
