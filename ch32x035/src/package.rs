@@ -57,24 +57,33 @@ const MODEL_COUNT: u32 = cfg!(feature = "ch32x035r8t6") as u32
 /// Meaningful when exactly one sub-model feature is enabled. Returns a
 /// placeholder when none are enabled or when several are enabled (e.g. under
 /// `cargo check --all-features`).
-pub const MODEL: &str = if MODEL_COUNT == 0 {
-    "CH32X035 (no model selected)"
-} else if MODEL_COUNT > 1 {
-    "CH32X035 (multiple models)"
-} else if cfg!(feature = "ch32x035r8t6") {
-    "CH32X035R8T6"
-} else if cfg!(feature = "ch32x035c8t6") {
-    "CH32X035C8T6"
-} else if cfg!(feature = "ch32x035g8u6") {
-    "CH32X035G8U6"
-} else if cfg!(feature = "ch32x035g8r6") {
-    "CH32X035G8R6"
-} else if cfg!(feature = "ch32x035f8u6") {
-    "CH32X035F8U6"
-} else if cfg!(feature = "ch32x035f7p6") {
-    "CH32X035F7P6"
-} else {
-    "CH32X035D8U6"
+///
+/// Expressed as a `match` on the compile-time `MODEL_COUNT` so the "0 / 1 /
+/// multiple" cases are explicit. Using comparisons against the constant would
+/// make clippy's `absurd_extreme_comparisons` misfire: it constant-folds
+/// `MODEL_COUNT` under the current feature set (e.g. `0` with no model
+/// selected), flagging `== 0` / `> 1` branches as always true/false even
+/// though they are reachable under other feature combinations.
+pub const MODEL: &str = match MODEL_COUNT {
+    0 => "CH32X035 (no model selected)",
+    1 => {
+        if cfg!(feature = "ch32x035r8t6") {
+            "CH32X035R8T6"
+        } else if cfg!(feature = "ch32x035c8t6") {
+            "CH32X035C8T6"
+        } else if cfg!(feature = "ch32x035g8u6") {
+            "CH32X035G8U6"
+        } else if cfg!(feature = "ch32x035g8r6") {
+            "CH32X035G8R6"
+        } else if cfg!(feature = "ch32x035f8u6") {
+            "CH32X035F8U6"
+        } else if cfg!(feature = "ch32x035f7p6") {
+            "CH32X035F7P6"
+        } else {
+            "CH32X035D8U6"
+        }
+    }
+    _ => "CH32X035 (multiple models)",
 };
 
 /// Number of operational amplifiers on the selected package: 1 or 2.
