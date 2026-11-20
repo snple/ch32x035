@@ -65,6 +65,7 @@ impl<T> Mutex<T> {
     }
 
     /// 消费锁，取出内部数据（无需加锁）。
+    #[inline(always)]
     pub fn into_inner(self) -> T {
         self.data.into_inner()
     }
@@ -76,6 +77,7 @@ impl<T: ?Sized> Mutex<T> {
     /// # Panics
     ///
     /// 同一任务重复加锁（非重入锁）会在死锁前 panic。
+    #[inline]
     pub fn lock(&self) -> MutexGuard<'_, T> {
         assert!(
             crate::scheduler::mutex_lock(&self.raw, None),
@@ -88,6 +90,7 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     /// 非阻塞尝试加锁：锁空闲则立即返回守卫，否则返回 `None`。
+    #[inline]
     pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
         if crate::scheduler::mutex_lock(&self.raw, Some(0)) {
             Some(MutexGuard {
@@ -113,6 +116,7 @@ impl<T: ?Sized> Mutex<T> {
     }
 
     /// 返回底层数据的可变引用（无需加锁；要求 `&mut self` 独占）。
+    #[inline(always)]
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
@@ -142,6 +146,7 @@ impl<T: ?Sized> DerefMut for MutexGuard<'_, T> {
 }
 
 impl<T: ?Sized> Drop for MutexGuard<'_, T> {
+    #[inline(always)]
     fn drop(&mut self) {
         crate::scheduler::mutex_unlock(&self.mutex.raw);
     }

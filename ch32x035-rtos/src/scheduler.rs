@@ -19,11 +19,13 @@ use crate::task::{MAX_PRIO, MAX_TASKS, StackStorage, Task, TaskDef, TaskInfo, Ta
 
 static TICK: AtomicU32 = AtomicU32::new(0);
 
+#[inline(always)]
 pub(crate) fn tick_now() -> u32 {
     TICK.load(Ordering::Relaxed)
 }
 
 /// tick 加一并返回新值。
+#[inline(always)]
 pub(crate) fn tick_inc() -> u32 {
     TICK.fetch_add(1, Ordering::Relaxed).wrapping_add(1)
 }
@@ -116,6 +118,7 @@ impl Scheduler {
     }
 
     /// 把 `id` 追加到优先级 `prio` 的就绪队列末尾。
+    #[inline]
     fn enqueue(&mut self, id: usize, prio: u8) {
         let p = prio as usize;
         // 硬断言而不是 debug_assert：release 下越界会直接破坏调度器状态。
@@ -158,12 +161,14 @@ impl Scheduler {
     }
 
     /// 把任务 `id` 标记为就绪并以 `prio` 入队（保留 `wait` 供 `take` 读取返回值）。
+    #[inline]
     fn make_ready(&mut self, id: usize, prio: u8) {
         self.tasks[id].as_mut().expect("task exists").state = TaskState::Ready;
         self.enqueue(id, prio);
     }
 
     /// 用 `wait` 阻塞运行中的任务。
+    #[inline]
     fn block_current(&mut self, wait: Wait) {
         let cur = self.current;
         let t = self.tasks[cur].as_mut().expect("task exists");
@@ -194,6 +199,7 @@ impl Scheduler {
     /// 返回 `Some((旧任务的 sp 槽位, 新任务的 sp))`，无需切换时返回 `None`。
     /// 选中的任务就是 `cur` 本身时**不能**走汇编切换：`Task::sp` 只在切出时写入，
     /// 任务运行期间它是上一次切出留下的旧值，拿它回切会跳回旧栈帧（甚至重跑入口）。
+    #[inline]
     fn switch_prep(&mut self, cur: usize) -> Option<(*mut *mut u32, *mut u32)> {
         let n = self.pick_next().expect("idle must always be ready");
         if n == cur {
@@ -330,12 +336,14 @@ impl Scheduler {
     }
 
     /// 运行中任务的索引。
+    #[inline(always)]
     pub(crate) fn current_id(&self) -> usize {
         self.current
     }
 
     /// 给信号量计数或唤醒其等待最久的任务，返回被唤醒的任务索引。
     /// 必须在临界区内调用。
+    #[inline]
     fn sem_give(&mut self, sem: &Semaphore) -> Option<u8> {
         let Some(id) = sem.pop_waiter() else {
             sem.count_inc();
@@ -401,6 +409,7 @@ impl Scheduler {
     }
 
     /// 重算任务的有效优先级；若其阻塞在互斥锁上，沿等待链继续传播。
+    #[inline(always)]
     fn refresh_prio(&mut self, id: usize) {
         self.refresh_prio_depth(id, 0);
     }
@@ -591,6 +600,7 @@ pub fn sleep(ms: u32) {
 // ---------------------------------------------------------------------------
 
 /// 由 SysTick 中断在 tick 加一后调用。
+#[inline]
 pub(crate) fn on_tick(now: u32) {
     interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();
@@ -599,6 +609,7 @@ pub(crate) fn on_tick(now: u32) {
 }
 
 /// 给信号量计数或唤醒其等待最久的任务。
+#[inline]
 pub(crate) fn sem_give(sem: &Semaphore) {
     interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();
@@ -703,6 +714,7 @@ pub(crate) fn mutex_lock(m: &RawMutex, timeout_ms: Option<u32>) -> bool {
 }
 
 /// 释放互斥锁，重算自身的有效优先级并唤醒一个等待者。
+#[inline]
 pub(crate) fn mutex_unlock(m: &RawMutex) {
     interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();
@@ -721,6 +733,7 @@ pub(crate) fn mutex_unlock(m: &RawMutex) {
 }
 
 /// 读取运行中任务本次阻塞是否获授，并清除等待状态。
+#[inline]
 pub(crate) fn clear_wait_return() -> bool {
     interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();

@@ -154,6 +154,7 @@ pub(crate) unsafe fn init_stack_frame(
 }
 
 /// 校验任务栈金丝雀与保存的栈指针；被破坏则 panic 并报任务名。
+#[inline]
 pub(crate) fn check_canary(t: &Task) {
     let magic = unsafe { (t.stack_bottom as *const u32).read_volatile() };
     if magic != CANARY {

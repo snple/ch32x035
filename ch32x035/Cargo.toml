@@ -13,7 +13,7 @@ categories = ["embedded", "hardware-support", "no-std"]
 ch32x035-rt.workspace = true
 ch32x035-pac.workspace = true
 ch32x035-macro.workspace = true
-paste.workspace = true
+pastey.workspace = true
 enumflags2.workspace = true
 critical-section.workspace = true
 defmt = { workspace = true, optional = true }
