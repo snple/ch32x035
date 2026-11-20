@@ -2,6 +2,7 @@
 name = "ch32x035-pac"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Peripheral Access Crate for CH32X035 (WCH RISC-V)"
 keywords = ["ch32x035", "wch", "pac", "embedded", "risc-v", "no-std"]

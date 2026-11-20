@@ -22,7 +22,7 @@ ch32x035-examples   →  ch32x035 (HAL)
 
 ## Target
 
-`riscv32imac-unknown-none-elf` (Rust 1.88+, edition 2024).
+`riscv32imac-unknown-none-elf` (Rust 1.100+, edition 2024).
 
 ## Toolchain
 

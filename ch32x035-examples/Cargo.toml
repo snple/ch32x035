@@ -2,6 +2,7 @@
 name = "ch32x035-examples"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Examples for the CH32X035 HAL"
 publish = false

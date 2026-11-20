@@ -2,6 +2,7 @@
 name = "ch32x035"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Hardware Abstraction Layer for the CH32X035 (WCH RISC-V QingKe V4C)"
 keywords = ["ch32x035", "wch", "hal", "embedded", "risc-v", "no-std"]

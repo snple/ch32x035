@@ -2,6 +2,7 @@
 name = "ch32x035-rt"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Runtime support for CH32X035 RISC-V microcontrollers (WCH QingKe V4C)"
 keywords = ["ch32x035", "wch", "risc-v", "runtime", "embedded", "no-std"]
