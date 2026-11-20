@@ -14,10 +14,11 @@
 //!
 //! - 任务签名必须为 `fn() -> !`，无参数。
 //! - 禁止在临界区（`interrupt::free`）内调用任何让出/阻塞
-//!   函数（`yield_now`、`sleep`、`Semaphore::take`、`Mutex::lock`）。
+//!   函数（`yield_now`、`sleep`、`Semaphore::take`、`Mutex::lock`）：
+//!   内核会在入口断言并 panic（`rtos_switch` 另会强制恢复全局中断使能）。
+//! - 任务恒以全局中断使能运行；中断处理函数中不得调用阻塞 API。
 //! - 内核独占 WCH SysTick；不要使用 HAL 的 `Delay` 忙等驱动。
-//! - 中断处理函数中不要调用阻塞 API；需要唤醒任务时用
-//!   [`sync::Semaphore::give_from_isr`]。
+//! - 中断处理函数中需要唤醒任务时用 [`sync::Semaphore::give_from_isr`]。
 
 #![no_std]
 

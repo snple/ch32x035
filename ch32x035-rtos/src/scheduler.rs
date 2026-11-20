@@ -34,6 +34,38 @@ fn deadline_after(ms: u32) -> u32 {
     tick_now().wrapping_add(ms)
 }
 
+/// WCH 全局中断门的使能位（CSR 0x800，与 HAL 的 `cs_acquire` 使用同一寄存器）。
+// `asm_sub_register` 在 RV32 上是误报：`u32` 恰好就是一个寄存器的宽度，
+// `{0}` 的默认格式就是正确的。HAL 的 `read_gintenr` 同样如此抑制。
+#[allow(asm_sub_register)]
+#[inline]
+fn global_interrupts_enabled() -> bool {
+    let value: u32;
+    unsafe {
+        core::arch::asm!(
+            "csrr {0}, 0x800",
+            out(reg) value,
+            options(nomem, nostack, preserves_flags)
+        );
+    }
+    value & 0x8 != 0
+}
+
+/// 断言当前不处于临界区（全局中断已使能）。
+///
+/// 在临界区内让出会破坏调用方的临界区语义：切换期间别的任务与中断会看到本应被
+/// 保护的状态。这里直接 panic，而不是让系统在别处莫名其妙地挂死。
+///
+/// 注意：本核心的中断服务程序运行在「全局中断使能」状态下，且 `mcause` 在
+/// `mret` 之后不会被清零，因此无法可靠区分「任务上下文」与「ISR 上下文」——
+/// 中断里禁止调用阻塞 API 只能靠调用约定保证。
+fn assert_can_block(what: &str) {
+    assert!(
+        global_interrupts_enabled(),
+        "ch32x035-rtos: {what} must not be called inside a critical section (interrupts are disabled)"
+    );
+}
+
 /// `now` 是否已到达（或越过）绝对 tick `deadline`。
 ///
 /// 用回绕安全的差值比较，而不是 `deadline <= now`：后者在 `u32` 回绕点（约 49.7 天）
@@ -59,8 +91,11 @@ pub(crate) struct Scheduler {
     ready: [[u8; MAX_TASKS]; (MAX_PRIO + 1) as usize],
     /// 每个就绪队列的长度。
     ready_len: [u8; (MAX_PRIO + 1) as usize],
-    /// 最高的非空就绪优先级；`MAX_PRIO + 1` = 无就绪任务。
-    top_ready: u8,
+    /// 非空就绪队列的位图：bit `p` 置位表示优先级 `p` 的队列非空。
+    ///
+    /// 最高优先级由它直接算出，不再缓存「top_ready」字段——缓存一旦与队列失配，
+    /// 就绪任务会永远看不见（空闲任务在 `wfi` 里空转，系统静默卡死）。
+    ready_mask: u8,
     /// 已注册任务数（含 idle）。
     task_count: usize,
 }
@@ -75,7 +110,7 @@ impl Scheduler {
             idle: 0,
             ready: [[0u8; MAX_TASKS]; (MAX_PRIO + 1) as usize],
             ready_len: [0u8; (MAX_PRIO + 1) as usize],
-            top_ready: MAX_PRIO + 1,
+            ready_mask: 0,
             task_count: 0,
         }
     }
@@ -83,12 +118,23 @@ impl Scheduler {
     /// 把 `id` 追加到优先级 `prio` 的就绪队列末尾。
     fn enqueue(&mut self, id: usize, prio: u8) {
         let p = prio as usize;
+        // 硬断言而不是 debug_assert：release 下越界会直接破坏调度器状态。
+        assert!(
+            p < self.ready_len.len() && (self.ready_len[p] as usize) < MAX_TASKS,
+            "ch32x035-rtos: scheduler ready-queue invariant violated"
+        );
         let len = self.ready_len[p] as usize;
-        debug_assert!(len < MAX_TASKS, "ready queue overflow");
         self.ready[p][len] = id as u8;
         self.ready_len[p] += 1;
-        if self.top_ready > MAX_PRIO || prio > self.top_ready {
-            self.top_ready = prio;
+        self.ready_mask |= 1 << prio;
+    }
+
+    /// 最高的非空就绪优先级（`None` = 没有就绪任务）。
+    fn top_ready(&self) -> Option<u8> {
+        if self.ready_mask == 0 {
+            None
+        } else {
+            Some(self.ready_mask.ilog2() as u8)
         }
     }
 
@@ -102,23 +148,12 @@ impl Scheduler {
                         self.ready[p][j - 1] = self.ready[p][j];
                     }
                     self.ready_len[p] -= 1;
-                    self.refresh_top();
+                    if self.ready_len[p] == 0 {
+                        self.ready_mask &= !(1 << p);
+                    }
                     return;
                 }
             }
-        }
-    }
-
-    /// 移除任务后修正 `top_ready`。
-    fn refresh_top(&mut self) {
-        if self.top_ready > MAX_PRIO {
-            return;
-        }
-        while self.top_ready > 0 && self.ready_len[self.top_ready as usize] == 0 {
-            self.top_ready -= 1;
-        }
-        if self.ready_len[self.top_ready as usize] == 0 {
-            self.top_ready = MAX_PRIO + 1;
         }
     }
 
@@ -141,17 +176,16 @@ impl Scheduler {
 
     /// 从就绪队列取出最高优先级任务。
     fn pick_next(&mut self) -> Option<usize> {
-        if self.top_ready > MAX_PRIO {
-            return None;
-        }
-        let p = self.top_ready as usize;
+        let p = self.top_ready()? as usize;
         let id = self.ready[p][0] as usize;
         let len = self.ready_len[p] as usize;
         for i in 1..len {
             self.ready[p][i - 1] = self.ready[p][i];
         }
         self.ready_len[p] -= 1;
-        self.refresh_top();
+        if self.ready_len[p] == 0 {
+            self.ready_mask &= !(1 << p);
+        }
         Some(id)
     }
 
@@ -175,13 +209,11 @@ impl Scheduler {
 
     /// 是否存在除 idle 之外的就绪任务。
     fn has_ready_except_idle(&self) -> bool {
-        if self.top_ready > MAX_PRIO {
-            return false;
-        }
-        if self.top_ready > 0 {
+        // 任何优先级 > 0 的就绪任务都不是 idle（idle 固定为优先级 0）。
+        if self.ready_mask & !1 != 0 {
             return true;
         }
-        // 只有优先级 0 非空；检查其中是否有 idle 之外的任务。
+        // 只有优先级 0 可能有任务；检查其中是否有 idle 之外的任务。
         for i in 0..self.ready_len[0] as usize {
             if self.ready[0][i] as usize != self.idle {
                 return true;
@@ -513,7 +545,12 @@ pub fn task_infos() -> [Option<TaskInfo>; MAX_TASKS] {
 /// 让出 CPU 给最高优先级就绪任务；调用任务回到其优先级队列末尾。
 ///
 /// 若调用者自己就是最高优先级就绪任务，则直接返回（不做栈切换）。
+///
+/// # Panics
+///
+/// 在临界区内调用会 panic。
 pub fn yield_now() {
+    assert_can_block("yield_now");
     let switch = interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();
         let cur = sched.current;
@@ -533,6 +570,7 @@ pub fn yield_now() {
 ///
 /// 时间不精确：若没有其它任务让出，唤醒可能被推迟。`sleep(0)` 等价于 [`yield_now`]。
 pub fn sleep(ms: u32) {
+    assert_can_block("sleep");
     if ms == 0 {
         return yield_now();
     }
@@ -573,6 +611,9 @@ pub(crate) fn sem_give(sem: &Semaphore) {
 /// 「检查计数」与「登记等待者」必须是原子的，否则 `give_from_isr` 若挤在两步之间，
 /// 会把计数加进信号量却没人来取，等待者永远睡着。
 pub(crate) fn sem_take(sem: &Semaphore, timeout_ms: Option<u32>) -> bool {
+    if timeout_ms != Some(0) {
+        assert_can_block("Semaphore::take");
+    }
     let mut acquired = false;
     let switch = interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();
@@ -607,6 +648,9 @@ pub(crate) fn sem_take(sem: &Semaphore, timeout_ms: Option<u32>) -> bool {
 
 /// 获取互斥锁。`timeout_ms` 为 `None` 时永远等待，`Some(0)` 只做一次非阻塞尝试。
 pub(crate) fn mutex_lock(m: &RawMutex, timeout_ms: Option<u32>) -> bool {
+    if timeout_ms != Some(0) {
+        assert_can_block("Mutex::lock");
+    }
     let mut acquired = false;
     let switch = interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();

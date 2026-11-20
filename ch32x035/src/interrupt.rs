@@ -194,14 +194,20 @@ impl<T> Mutex<T> {
 ///
 /// The closure receives a [`CriticalSection`] token. Interrupts are restored
 /// to their previous state on return.
+///
+/// The acquire/release pair is also a **compiler barrier**: data shared with an
+/// interrupt handler must not be cached in registers across the section, or the
+/// handler's writes would stay invisible to the surrounding code.
 #[inline]
 pub fn free<F, R>(f: F) -> R
 where
     F: FnOnce(CriticalSection) -> R,
 {
     let state = unsafe { cs_acquire() };
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     // SAFETY: `CriticalSection::new` is valid while interrupts are disabled.
     let r = f(unsafe { CriticalSection::new() });
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     unsafe { cs_release(state) };
     r
 }
@@ -222,6 +228,7 @@ where
 pub unsafe fn cs_acquire() -> u32 {
     let state = read_gintenr();
     crate::rt::interrupt::disable();
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     state
 }
 
@@ -235,6 +242,7 @@ pub unsafe fn cs_acquire() -> u32 {
 /// `state` must come from a matching [`cs_acquire`] call.
 #[inline]
 pub unsafe fn cs_release(state: u32) {
+    core::sync::atomic::compiler_fence(core::sync::atomic::Ordering::SeqCst);
     // SAFETY: restoring a previously-saved gate value.
     unsafe { write_gintenr(state) };
 }
