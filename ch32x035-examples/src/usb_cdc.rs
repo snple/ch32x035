@@ -88,10 +88,10 @@ fn main() -> ! {
                 Err(_) => pending = None,
             }
         }
-        if pending.is_none() {
-            if let Ok(n) = serial.read(&mut buf) {
-                pending = Some(n);
-            }
+        if pending.is_none()
+            && let Ok(n) = serial.read(&mut buf)
+        {
+            pending = Some(n);
         }
     }
 }
