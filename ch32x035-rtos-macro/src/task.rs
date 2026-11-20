@@ -110,6 +110,17 @@ pub fn task_impl(args: TokenStream, input: TokenStream) -> TokenStream {
 
     let task_name = name.unwrap_or_else(|| fn_ident.to_string());
     let stack_size = stack.unwrap_or(crate::DEFAULT_STACK_ATTR);
+    if stack_size < crate::MIN_STACK_ATTR {
+        return syn::Error::new(
+            Span::call_site(),
+            format!(
+                "stack must be at least {} bytes (context frame + one call frame)",
+                crate::MIN_STACK_ATTR
+            ),
+        )
+        .to_compile_error()
+        .into();
+    }
     let attrs: Vec<&Attribute> = f.attrs.iter().collect();
     let vis = &f.vis;
     let stmts = &f.block.stmts;
@@ -120,18 +131,19 @@ pub fn task_impl(args: TokenStream, input: TokenStream) -> TokenStream {
             #(#stmts)*
         }
 
-        // 任务栈：`.bss` 中的普通静态数组。`#[used]` 使其存活。初始栈指针在任务
-        // 建立时按 16 字节对齐，数组本身无需特殊对齐。
+        // 任务栈：`.bss` 中 16 字节对齐的静态数组。上下文帧与栈底金丝雀按 `u32`
+        // 访问，因此不能用裸 `[u8; N]`（对齐只有 1）。
         #[allow(non_upper_case_globals)]
         #[used]
-        static mut #stack_ident: [u8; #stack_size] = [0; #stack_size];
+        static mut #stack_ident: ::ch32x035_rtos::task_mod::StackStorage<#stack_size> =
+            ::ch32x035_rtos::task_mod::StackStorage::new();
 
         #[allow(non_upper_case_globals)]
         #[used]
         #[unsafe(link_section = ".rtos.tasks")]
         static #def_ident: ::ch32x035_rtos::task_mod::TaskDef = ::ch32x035_rtos::task_mod::TaskDef {
             entry: #task_ident,
-            stack: unsafe { &raw mut #stack_ident } as *mut u8,
+            stack: unsafe { (&raw mut #stack_ident).cast::<u8>() },
             stack_size: #stack_size,
             priority: #prio,
             name: #task_name,
@@ -142,6 +154,11 @@ pub fn task_impl(args: TokenStream, input: TokenStream) -> TokenStream {
         unsafe extern "C" fn #task_ident() -> ! {
             #fn_ident()
         }
+
+        // 宏常量与内核常量的一致性由编译器保证：一旦两边漂移，用户代码编译失败。
+        const _: () = ::core::assert!(
+            ::ch32x035_rtos::task_mod::MIN_STACK_SIZE <= #stack_size
+        );
     }
     .into()
 }

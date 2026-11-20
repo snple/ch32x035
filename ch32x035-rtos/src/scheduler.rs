@@ -11,7 +11,7 @@ use ch32x035::rt::peripheral::SYST;
 
 use crate::context;
 use crate::sync::{RawMutex, Semaphore};
-use crate::task::{MAX_PRIO, MAX_TASKS, Task, TaskDef, TaskInfo, TaskState, Wait};
+use crate::task::{MAX_PRIO, MAX_TASKS, StackStorage, Task, TaskDef, TaskInfo, TaskState, Wait};
 
 // ---------------------------------------------------------------------------
 // 全局 tick（1 ms/tick，由 SysTick 中断推进）
@@ -26,6 +26,21 @@ pub(crate) fn tick_now() -> u32 {
 /// tick 加一并返回新值。
 pub(crate) fn tick_inc() -> u32 {
     TICK.fetch_add(1, Ordering::Relaxed).wrapping_add(1)
+}
+
+/// 从当前时刻开始的 `ms` 毫秒后对应的绝对 tick。
+#[inline]
+fn deadline_after(ms: u32) -> u32 {
+    tick_now().wrapping_add(ms)
+}
+
+/// `now` 是否已到达（或越过）绝对 tick `deadline`。
+///
+/// 用回绕安全的差值比较，而不是 `deadline <= now`：后者在 `u32` 回绕点（约 49.7 天）
+/// 之后会永远为假，导致睡眠任务永不唤醒。要求超时长度小于 2³¹ ms（约 24.8 天）。
+#[inline]
+pub(crate) fn deadline_reached(now: u32, deadline: u32) -> bool {
+    now.wrapping_sub(deadline) < 0x8000_0000
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +111,9 @@ impl Scheduler {
 
     /// 移除任务后修正 `top_ready`。
     fn refresh_top(&mut self) {
+        if self.top_ready > MAX_PRIO {
+            return;
+        }
         while self.top_ready > 0 && self.ready_len[self.top_ready as usize] == 0 {
             self.top_ready -= 1;
         }
@@ -117,7 +135,7 @@ impl Scheduler {
         t.wait = Some(wait);
         t.state = match wait {
             Wait::Sleep(_) => TaskState::BlockedSleep,
-            Wait::Sem { .. } => TaskState::BlockedSem,
+            Wait::Sem { .. } | Wait::Mutex { .. } => TaskState::BlockedSem,
         };
     }
 
@@ -138,14 +156,21 @@ impl Scheduler {
     }
 
     /// 选出下一个任务并准备从 `cur` 切换。
-    /// 返回 `(旧任务的 sp 槽位, 新任务的 sp)`。
-    fn switch_prep(&mut self, cur: usize) -> (*mut *mut u32, *mut u32) {
+    ///
+    /// 返回 `Some((旧任务的 sp 槽位, 新任务的 sp))`，无需切换时返回 `None`。
+    /// 选中的任务就是 `cur` 本身时**不能**走汇编切换：`Task::sp` 只在切出时写入，
+    /// 任务运行期间它是上一次切出留下的旧值，拿它回切会跳回旧栈帧（甚至重跑入口）。
+    fn switch_prep(&mut self, cur: usize) -> Option<(*mut *mut u32, *mut u32)> {
         let n = self.pick_next().expect("idle must always be ready");
+        if n == cur {
+            self.tasks[cur].as_mut().expect("task exists").state = TaskState::Running;
+            return None;
+        }
         self.current = n;
         self.tasks[n].as_mut().expect("task exists").state = TaskState::Running;
         let new_sp = self.tasks[n].as_ref().expect("task exists").sp;
         let old_slot = &raw mut self.tasks[cur].as_mut().expect("task exists").sp;
-        (old_slot, new_sp)
+        Some((old_slot, new_sp))
     }
 
     /// 是否存在除 idle 之外的就绪任务。
@@ -168,39 +193,53 @@ impl Scheduler {
     /// 唤醒截止时间已到的任务。
     fn wake_expired(&mut self, now: u32) {
         for i in 0..self.task_count {
-            let Some(t) = self.tasks[i].as_mut() else {
+            let Some(t) = self.tasks[i].as_ref() else {
                 continue;
             };
-            match t.state {
-                TaskState::BlockedSleep => {
-                    if let Some(Wait::Sleep(d)) = t.wait
-                        && d <= now
-                    {
-                        t.wait = None;
-                        let prio = t.cur_prio;
-                        t.state = TaskState::Ready;
-                        self.enqueue(i, prio);
-                    }
-                }
-                TaskState::BlockedSem => {
-                    if let Some(Wait::Sem {
-                        sem,
-                        deadline,
+            let expired = match (t.state, t.wait) {
+                (TaskState::BlockedSleep, Some(Wait::Sleep(d))) => deadline_reached(now, d),
+                (
+                    TaskState::BlockedSem,
+                    Some(Wait::Sem {
+                        deadline: Some(d),
                         granted: false,
-                    }) = t.wait
-                        && deadline != 0
-                        && deadline <= now
-                    {
-                        // 把任务从信号量的等待环中移除。
-                        unsafe { (&*(sem as *const Semaphore)).remove_waiter(i as u8) };
-                        // 保留 `wait`（granted = false）供 `take` 读取超时结果。
-                        let prio = t.cur_prio;
-                        t.state = TaskState::Ready;
-                        self.enqueue(i, prio);
+                        ..
+                    }),
+                )
+                | (
+                    TaskState::BlockedSem,
+                    Some(Wait::Mutex {
+                        deadline: Some(d),
+                        granted: false,
+                        ..
+                    }),
+                ) => deadline_reached(now, d),
+                _ => false,
+            };
+            if !expired {
+                continue;
+            }
+            let wait = t.wait.expect("wait set");
+            let prio = t.cur_prio;
+            let t = self.tasks[i].as_mut().expect("task exists");
+            if matches!(wait, Wait::Sleep(_)) {
+                t.wait = None;
+            }
+            // 保留 `Wait::Sem` / `Wait::Mutex`（granted = false）供等待方读取超时结果。
+            t.state = TaskState::Ready;
+
+            match wait {
+                Wait::Sleep(_) => {}
+                Wait::Sem { sem, .. } => unsafe { (*sem).remove_waiter(i as u8) },
+                Wait::Mutex { m, .. } => {
+                    unsafe { (*m).inner.remove_waiter(i as u8) };
+                    // 等待者离开后，持有者可能不再需要继承来的优先级。
+                    if let Some(o) = unsafe { *(*m).owner.get() } {
+                        self.refresh_prio(o as usize);
                     }
                 }
-                _ => {}
             }
+            self.enqueue(i, prio);
         }
     }
 
@@ -224,6 +263,7 @@ impl Scheduler {
                 name: d.name,
                 state: TaskState::Ready,
                 wait: None,
+                held: core::ptr::null(),
             });
             self.enqueue(i, d.priority);
             self.task_count += 1;
@@ -231,7 +271,7 @@ impl Scheduler {
 
         // idle 任务永远存在，且在没有其它就绪任务时总是就绪。
         let idle = self.task_count;
-        let idle_bottom = &raw mut IDLE_STACK as *mut u8;
+        let idle_bottom = (&raw mut IDLE_STACK).cast::<u8>();
         let idle_sp =
             unsafe { context::init_stack_frame(idle_entry, idle_bottom, IDLE_STACK_SIZE) };
         self.tasks[idle] = Some(Task {
@@ -243,6 +283,7 @@ impl Scheduler {
             name: "idle",
             state: TaskState::Ready,
             wait: None,
+            held: core::ptr::null(),
         });
         self.idle = idle;
         self.enqueue(idle, 0);
@@ -261,68 +302,124 @@ impl Scheduler {
         self.current
     }
 
-    /// 给信号量计数或唤醒其等待最久的任务。
+    /// 给信号量计数或唤醒其等待最久的任务，返回被唤醒的任务索引。
     /// 必须在临界区内调用。
-    fn sem_give(&mut self, sem: &Semaphore) {
-        if let Some(id) = sem.pop_waiter() {
-            let t = self.tasks[id as usize]
-                .as_mut()
-                .expect("waiter task exists");
-            if let Some(Wait::Sem { granted, .. }) = &mut t.wait {
-                *granted = true;
-            }
-            let prio = t.cur_prio;
-            self.make_ready(id as usize, prio);
-        } else {
+    fn sem_give(&mut self, sem: &Semaphore) -> Option<u8> {
+        let Some(id) = sem.pop_waiter() else {
             sem.count_inc();
+            return None;
+        };
+        let t = self.tasks[id as usize]
+            .as_mut()
+            .expect("waiter task exists");
+        match &mut t.wait {
+            Some(Wait::Sem { granted, .. }) | Some(Wait::Mutex { granted, .. }) => *granted = true,
+            _ => {}
+        }
+        let prio = t.cur_prio;
+        self.make_ready(id as usize, prio);
+        Some(id)
+    }
+
+    // -----------------------------------------------------------------------
+    // 优先级继承
+    //
+    // 任务的有效优先级 = max(基础优先级, 它所持有的每把互斥锁上等待者的最高有效
+    // 优先级)。任务持有哪些锁由 `Task::held` 单向链表记录，等待者的优先级则直接
+    // 从互斥锁的等待环里取，因此不需要额外缓存，也不存在"缓存过期"的问题。
+    //
+    // 任意一把锁的等待者集合发生变化后，调用 `refresh_prio(持有者)` 即可；若持有者
+    // 自己也阻塞在别的锁上，会沿等待链继续传播（覆盖 H→L→M 这类链式反转）。
+    // -----------------------------------------------------------------------
+
+    /// 直接设置有效优先级，必要时在就绪队列中移动到新的优先级。
+    fn set_cur_prio(&mut self, id: usize, prio: u8) {
+        let was_ready = self.tasks[id].as_ref().expect("task exists").state == TaskState::Ready;
+        if was_ready {
+            self.dequeue(id);
+        }
+        self.tasks[id].as_mut().expect("task exists").cur_prio = prio;
+        if was_ready {
+            self.enqueue(id, prio);
         }
     }
 
-    /// 把 `owner` 的有效优先级提升到 `to_prio`（互斥优先级继承），若其就绪则重新入队。
-    pub(crate) fn inherit_priority(&mut self, owner: usize, to_prio: u8) {
-        {
-            let t = self.tasks[owner].as_ref().expect("owner task exists");
-            if to_prio <= t.cur_prio {
-                return;
+    /// 互斥锁等待者中的最高有效优先级（无等待者时为 0）。
+    fn max_waiter_prio(&self, m: &RawMutex) -> u8 {
+        let mut max = 0;
+        for i in 0..m.inner.waiter_len() {
+            let id = m.inner.waiter_at(i) as usize;
+            if let Some(t) = self.tasks[id].as_ref() {
+                max = max.max(t.cur_prio);
             }
         }
-        let was_ready =
-            self.tasks[owner].as_ref().expect("owner task exists").state == TaskState::Ready;
-        if was_ready {
-            self.dequeue(owner);
+        max
+    }
+
+    /// 计算任务应有的有效优先级。
+    fn compute_prio(&self, id: usize) -> u8 {
+        let t = self.tasks[id].as_ref().expect("task exists");
+        let mut prio = t.base_prio;
+        let mut it = t.held;
+        while !it.is_null() {
+            prio = prio.max(self.max_waiter_prio(unsafe { &*it }));
+            it = unsafe { *(*it).next_held.get() };
         }
-        self.tasks[owner]
-            .as_mut()
-            .expect("owner task exists")
-            .cur_prio = to_prio;
-        if was_ready {
-            self.enqueue(owner, to_prio);
+        prio
+    }
+
+    /// 重算任务的有效优先级；若其阻塞在互斥锁上，沿等待链继续传播。
+    fn refresh_prio(&mut self, id: usize) {
+        self.refresh_prio_depth(id, 0);
+    }
+
+    fn refresh_prio_depth(&mut self, id: usize, depth: usize) {
+        // 等待链最长不会超过任务数；超限说明出现了环，直接停止。
+        if depth > MAX_TASKS {
+            return;
+        }
+        let want = self.compute_prio(id);
+        if self.tasks[id].as_ref().expect("task exists").cur_prio == want {
+            return;
+        }
+        self.set_cur_prio(id, want);
+        // 只有真正阻塞在互斥锁上时才需要沿着等待链继续传播；超时后残留的
+        // `wait`（`granted = false`）不算。
+        let t = self.tasks[id].as_ref().expect("task exists");
+        if t.state == TaskState::BlockedSem
+            && let Some(Wait::Mutex {
+                m, granted: false, ..
+            }) = t.wait
+            && let Some(owner) = unsafe { *(*m).owner.get() }
+        {
+            self.refresh_prio_depth(owner as usize, depth + 1);
         }
     }
 
-    /// 把 `owner` 的有效优先级恢复为其基础优先级，若其就绪则重新入队。
-    pub(crate) fn restore_priority(&mut self, owner: usize) {
-        let base = self.tasks[owner]
-            .as_ref()
-            .expect("owner task exists")
-            .base_prio;
-        {
-            let t = self.tasks[owner].as_ref().expect("owner task exists");
-            if t.cur_prio == base {
+    /// 把互斥锁 `m` 记到任务 `id` 的已持锁链表头。
+    fn link_held(&mut self, id: usize, m: &RawMutex) {
+        let head = self.tasks[id].as_ref().expect("task exists").held;
+        unsafe { *m.next_held.get() = head };
+        self.tasks[id].as_mut().expect("task exists").held = m;
+    }
+
+    /// 把互斥锁 `m` 从任务 `id` 的已持锁链表中摘除。
+    fn unlink_held(&mut self, id: usize, m: &RawMutex) {
+        let mut prev: *const RawMutex = core::ptr::null();
+        let mut cur = self.tasks[id].as_ref().expect("task exists").held;
+        while !cur.is_null() {
+            if core::ptr::eq(cur, m) {
+                let next = unsafe { *(*cur).next_held.get() };
+                if prev.is_null() {
+                    self.tasks[id].as_mut().expect("task exists").held = next;
+                } else {
+                    unsafe { *(*prev).next_held.get() = next };
+                }
+                unsafe { *(*cur).next_held.get() = core::ptr::null() };
                 return;
             }
-        }
-        let was_ready =
-            self.tasks[owner].as_ref().expect("owner task exists").state == TaskState::Ready;
-        if was_ready {
-            self.dequeue(owner);
-        }
-        self.tasks[owner]
-            .as_mut()
-            .expect("owner task exists")
-            .cur_prio = base;
-        if was_ready {
-            self.enqueue(owner, base);
+            prev = cur;
+            cur = unsafe { *(*cur).next_held.get() };
         }
     }
 }
@@ -332,7 +429,7 @@ impl Scheduler {
 // ---------------------------------------------------------------------------
 
 const IDLE_STACK_SIZE: usize = 512;
-static mut IDLE_STACK: [u8; IDLE_STACK_SIZE] = [0; IDLE_STACK_SIZE];
+static mut IDLE_STACK: StackStorage<IDLE_STACK_SIZE> = StackStorage::new();
 
 unsafe extern "C" fn idle_entry() -> ! {
     loop {
@@ -361,8 +458,9 @@ fn collect_task_defs() -> &'static [TaskDef] {
     unsafe {
         let start = &raw const __rtos_tasks_start as *const TaskDef;
         let end = &raw const __rtos_tasks_end as *const TaskDef;
-        let count = end.offset_from(start) as usize;
-        core::slice::from_raw_parts(start, count)
+        // 用字节差换算，避免依赖两个符号来自同一 allocation。
+        let bytes = (end as usize) - (start as usize);
+        core::slice::from_raw_parts(start, bytes / core::mem::size_of::<TaskDef>())
     }
 }
 
@@ -413,8 +511,10 @@ pub fn task_infos() -> [Option<TaskInfo>; MAX_TASKS] {
 }
 
 /// 让出 CPU 给最高优先级就绪任务；调用任务回到其优先级队列末尾。
+///
+/// 若调用者自己就是最高优先级就绪任务，则直接返回（不做栈切换）。
 pub fn yield_now() {
-    let (old_slot, new_sp) = interrupt::free(|cs| {
+    let switch = interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();
         let cur = sched.current;
         context::check_canary(sched.tasks[cur].as_ref().expect("task exists"));
@@ -424,7 +524,9 @@ pub fn yield_now() {
     });
     // 在中断使能状态下切换（上面的临界区已释放）。新任务会在其自身的调度点
     // 恢复执行。
-    unsafe { context::rtos_switch(old_slot, new_sp) };
+    if let Some((old_slot, new_sp)) = switch {
+        unsafe { context::rtos_switch(old_slot, new_sp) };
+    }
 }
 
 /// 睡眠至少 `ms` 毫秒并让出 CPU。
@@ -438,9 +540,10 @@ pub fn sleep(ms: u32) {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();
         let cur = sched.current;
         context::check_canary(sched.tasks[cur].as_ref().expect("task exists"));
-        let now = tick_now();
-        sched.block_current(Wait::Sleep(now.wrapping_add(ms)));
-        sched.switch_prep(cur)
+        sched.block_current(Wait::Sleep(deadline_after(ms)));
+        sched
+            .switch_prep(cur)
+            .expect("a blocked task must never be re-selected")
     });
     unsafe { context::rtos_switch(old_slot, new_sp) };
 }
@@ -461,99 +564,127 @@ pub(crate) fn on_tick(now: u32) {
 pub(crate) fn sem_give(sem: &Semaphore) {
     interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();
-        sched.sem_give(sem);
+        let _ = sched.sem_give(sem);
     });
 }
 
-/// 获取互斥锁，阻塞直到获授或 `deadline`（0 = 永远）。阻塞期间应用优先级继承。
-pub(crate) fn mutex_lock(m: &RawMutex, deadline: u32) -> bool {
-    // 快路径：空闲则立即获取。
-    let got = interrupt::free(|cs| {
-        let sched = SCHEDULER.borrow(cs).borrow_mut();
-        if m.inner.try_take() {
-            unsafe { *m.owner.get() = Some(sched.current_id() as u8) };
-            true
-        } else {
-            false
-        }
-    });
-    if got {
-        return true;
-    }
-
-    // 优先级继承：提升持有者的有效优先级，使其尽快被调度并释放锁。
-    interrupt::free(|cs| {
-        let mut sched = SCHEDULER.borrow(cs).borrow_mut();
-        if let Some(o) = unsafe { *m.owner.get() } {
-            let base = sched.tasks[sched.current]
-                .as_ref()
-                .expect("task exists")
-                .base_prio;
-            sched.inherit_priority(o as usize, base);
-        }
-    });
-
-    block_sem_and_switch(&m.inner, deadline);
-
-    interrupt::free(|cs| {
-        let mut sched = SCHEDULER.borrow(cs).borrow_mut();
-        let cur = sched.current;
-        let granted = matches!(
-            sched.tasks[cur].as_ref().expect("task exists").wait,
-            Some(Wait::Sem { granted: true, .. })
-        );
-        sched.tasks[cur].as_mut().expect("task exists").wait = None;
-        if granted {
-            unsafe { *m.owner.get() = Some(cur as u8) };
-        }
-        granted
-    })
-}
-
-/// 释放互斥锁，恢复任何继承的优先级并唤醒一个等待者。
-pub(crate) fn mutex_unlock(m: &RawMutex) {
-    interrupt::free(|cs| {
-        let mut sched = SCHEDULER.borrow(cs).borrow_mut();
-        if let Some(o) = unsafe { *m.owner.get() } {
-            sched.restore_priority(o as usize);
-        }
-        unsafe { *m.owner.get() = None };
-        sched.sem_give(&m.inner);
-    });
-}
-
-/// 阻塞运行中任务于 `sem` 并切换。
+/// 等待信号量：消费计数，或在**同一个临界区**内登记为等待者并切换。
 ///
-/// 只能在任务上下文调用。任务获授信号量或超时后返回。
-pub(crate) fn block_sem_and_switch(sem: &Semaphore, deadline: u32) {
-    let (old_slot, new_sp) = interrupt::free(|cs| {
+/// 「检查计数」与「登记等待者」必须是原子的，否则 `give_from_isr` 若挤在两步之间，
+/// 会把计数加进信号量却没人来取，等待者永远睡着。
+pub(crate) fn sem_take(sem: &Semaphore, timeout_ms: Option<u32>) -> bool {
+    let mut acquired = false;
+    let switch = interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();
+        if sem.try_take() {
+            acquired = true;
+            return None;
+        }
+        // `Some(0)` = 只做一次非阻塞尝试（`None` 才是永远等待）。
+        if timeout_ms == Some(0) {
+            return None;
+        }
         let cur = sched.current;
         context::check_canary(sched.tasks[cur].as_ref().expect("task exists"));
         sem.register_waiter(cur as u8);
         sched.block_current(Wait::Sem {
-            sem: sem as *const Semaphore as *const (),
-            deadline,
+            sem: sem as *const Semaphore,
+            deadline: timeout_ms.map(deadline_after),
             granted: false,
         });
-        sched.switch_prep(cur)
+        Some(
+            sched
+                .switch_prep(cur)
+                .expect("a blocked task must never be re-selected"),
+        )
     });
+    let Some((old_slot, new_sp)) = switch else {
+        return acquired;
+    };
     unsafe { context::rtos_switch(old_slot, new_sp) };
+    clear_wait_return()
 }
 
-/// 读取运行中任务本次信号量等待是否获授，并清除等待状态。
-pub(crate) fn clear_sem_wait_return(sem: &Semaphore) -> bool {
+/// 获取互斥锁。`timeout_ms` 为 `None` 时永远等待，`Some(0)` 只做一次非阻塞尝试。
+pub(crate) fn mutex_lock(m: &RawMutex, timeout_ms: Option<u32>) -> bool {
+    let mut acquired = false;
+    let switch = interrupt::free(|cs| {
+        let mut sched = SCHEDULER.borrow(cs).borrow_mut();
+        let cur = sched.current_id();
+
+        // 快路径：空闲则立即获取。
+        if m.inner.try_take() {
+            debug_assert!(
+                unsafe { (*m.owner.get()).is_none() },
+                "ch32x035-rtos: mutex acquired while still owned"
+            );
+            unsafe { *m.owner.get() = Some(cur as u8) };
+            sched.link_held(cur, m);
+            acquired = true;
+            return None;
+        }
+        // `Some(0)` = 只做一次非阻塞尝试（`None` 才是永远等待）。
+        if timeout_ms == Some(0) {
+            return None;
+        }
+
+        assert!(
+            unsafe { *m.owner.get() } != Some(cur as u8),
+            "ch32x035-rtos: task '{}' tried to lock a mutex it already holds",
+            sched.tasks[cur].as_ref().expect("task exists").name
+        );
+
+        context::check_canary(sched.tasks[cur].as_ref().expect("task exists"));
+        m.inner.register_waiter(cur as u8);
+        sched.block_current(Wait::Mutex {
+            m: m as *const RawMutex,
+            deadline: timeout_ms.map(deadline_after),
+            granted: false,
+        });
+        // 新的等待者可能抬高持有者的有效优先级。
+        if let Some(o) = unsafe { *m.owner.get() } {
+            sched.refresh_prio(o as usize);
+        }
+        Some(
+            sched
+                .switch_prep(cur)
+                .expect("a blocked task must never be re-selected"),
+        )
+    });
+    let Some((old_slot, new_sp)) = switch else {
+        return acquired;
+    };
+    unsafe { context::rtos_switch(old_slot, new_sp) };
+    clear_wait_return()
+}
+
+/// 释放互斥锁，重算自身的有效优先级并唤醒一个等待者。
+pub(crate) fn mutex_unlock(m: &RawMutex) {
+    interrupt::free(|cs| {
+        let mut sched = SCHEDULER.borrow(cs).borrow_mut();
+        if let Some(o) = unsafe { *m.owner.get() } {
+            sched.unlink_held(o as usize, m);
+            unsafe { *m.owner.get() = None };
+            sched.refresh_prio(o as usize);
+        }
+        // 交接时立刻登记新持有者，避免出现 "已加锁但 owner 为空" 的窗口。
+        if let Some(woken) = sched.sem_give(&m.inner) {
+            unsafe { *m.owner.get() = Some(woken) };
+            sched.link_held(woken as usize, m);
+            sched.refresh_prio(woken as usize);
+        }
+    });
+}
+
+/// 读取运行中任务本次阻塞是否获授，并清除等待状态。
+pub(crate) fn clear_wait_return() -> bool {
     interrupt::free(|cs| {
         let mut sched = SCHEDULER.borrow(cs).borrow_mut();
         let cur = sched.current;
         let t = sched.tasks[cur].as_mut().expect("task exists");
         let granted = matches!(
             t.wait,
-            Some(Wait::Sem {
-                sem: s,
-                granted: true,
-                ..
-            }) if s == sem as *const Semaphore as *const ()
+            Some(Wait::Sem { granted: true, .. }) | Some(Wait::Mutex { granted: true, .. })
         );
         t.wait = None;
         granted

@@ -111,12 +111,28 @@ unsafe extern "C" {
 ///
 /// # Safety
 ///
-/// `stack` 必须指向至少 `size` 字节的可写内存。
+/// `stack` 必须指向至少 `size` 字节的可写内存，且 16 字节对齐（[`crate::task::StackStorage`]
+/// 保证这一点）。
+///
+/// # Panics
+///
+/// `size` 不足以容纳上下文帧加上一帧普通调用链时 panic。
 pub(crate) unsafe fn init_stack_frame(
     entry: unsafe extern "C" fn() -> !,
     stack: *mut u8,
     size: usize,
 ) -> *mut u32 {
+    assert!(
+        size >= CONTEXT_BYTES + 64,
+        "ch32x035-rtos: task stack too small ({} bytes, need at least {})",
+        size,
+        CONTEXT_BYTES + 64
+    );
+    debug_assert_eq!(
+        stack as usize % 16,
+        0,
+        "ch32x035-rtos: task stack must be 16-byte aligned"
+    );
     let base = stack as usize;
     // 金丝雀写在栈的最底部。
     unsafe { (base as *mut u32).write_volatile(CANARY) };
@@ -132,10 +148,16 @@ pub(crate) unsafe fn init_stack_frame(
     frame
 }
 
-/// 校验任务栈金丝雀；被覆盖则 panic 并报任务名。
+/// 校验任务栈金丝雀与保存的栈指针；被破坏则 panic 并报任务名。
 pub(crate) fn check_canary(t: &Task) {
     let magic = unsafe { (t.stack_bottom as *const u32).read_volatile() };
     if magic != CANARY {
         panic!("ch32x035-rtos: stack overflow in task '{}'", t.name);
+    }
+    // `sp` 在任务运行期间是上次切出时保存的旧值，但它始终应落在自己的栈区间内。
+    let sp = t.sp as usize;
+    let lo = t.stack_bottom as usize;
+    if sp != 0 && !(lo..lo + t.stack_size).contains(&sp) {
+        panic!("ch32x035-rtos: corrupt stack pointer in task '{}'", t.name);
     }
 }

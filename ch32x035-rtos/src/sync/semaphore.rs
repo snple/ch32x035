@@ -36,22 +36,19 @@ impl Semaphore {
         }
     }
 
-    /// 等待一个计数。`timeout_ms` 为 `None` 时永远等待。
+    /// 等待一个计数。`timeout_ms` 为 `None` 时永远等待，`Some(0)` 只做一次非阻塞尝试。
     ///
     /// 获取到计数返回 `true`，超时返回 `false`。
     ///
+    /// 「检查计数」与「登记等待者」在同一个临界区内完成，因此 `give_from_isr`
+    /// 不会丢失唤醒。
+    ///
     /// # Panics
     ///
-    /// 在中断处理函数中调用会 panic（阻塞不可用于 ISR）。
+    /// 不得在中断处理函数中调用（阻塞需要任务上下文，且内核用当前任务索引记录
+    /// 等待者）。
     pub fn take(&self, timeout_ms: Option<u32>) -> bool {
-        if ch32x035::interrupt::free(|_| self.try_take()) {
-            return true;
-        }
-        let deadline = timeout_ms
-            .map(|ms| crate::scheduler::tick_now().wrapping_add(ms))
-            .unwrap_or(0);
-        crate::scheduler::block_sem_and_switch(self, deadline);
-        crate::scheduler::clear_sem_wait_return(self)
+        crate::scheduler::sem_take(self, timeout_ms)
     }
 
     /// 给出一个计数，唤醒等待最久的阻塞任务（若有）。
@@ -91,7 +88,7 @@ impl Semaphore {
     }
 
     /// 排队等待者数量。
-    fn waiter_len(&self) -> u8 {
+    pub(crate) fn waiter_len(&self) -> u8 {
         unsafe {
             let head = *self.head.get();
             let tail = *self.tail.get();
@@ -100,6 +97,14 @@ impl Semaphore {
             } else {
                 (MAX_TASKS as u8) - head + tail
             }
+        }
+    }
+
+    /// 第 `i` 个等待者（`i` 从等待最久的开始计）。
+    pub(crate) fn waiter_at(&self, i: u8) -> u8 {
+        unsafe {
+            let head = *self.head.get();
+            (*self.waiters.get())[((head + i) % (MAX_TASKS as u8)) as usize]
         }
     }
 

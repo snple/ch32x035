@@ -1,7 +1,7 @@
 //! 带优先级继承的互斥锁，API 对齐 `std::sync::Mutex`。
 //!
-//! 基于二值信号量实现。任务阻塞在已锁定的互斥锁上时，当前持有者的有效优先级被
-//! 提升到等待者的优先级，使持有者尽快被调度并释放锁。
+//! 基于二值信号量实现。任务阻塞在已锁定的互斥锁上时，持有者（及其等待链上游的
+//! 持有者）的有效优先级被提升到等待者的有效优先级，使持有者尽快被调度并释放锁。
 //!
 //! [`Mutex::lock`] 返回 RAII 守卫 [`MutexGuard`]，离开作用域自动解锁，避免忘记
 //! `unlock` 或异常路径泄漏锁。
@@ -19,6 +19,8 @@ pub(crate) struct RawMutex {
     pub(crate) inner: Semaphore,
     /// 当前持有者任务索引（已锁定时）。
     pub(crate) owner: UnsafeCell<Option<u8>>,
+    /// 持有者「已持锁链表」中的下一把锁；仅供调度器在临界区内访问。
+    pub(crate) next_held: UnsafeCell<*const RawMutex>,
 }
 
 // 所有字段仅在临界区内修改（见 scheduler）。
@@ -29,6 +31,7 @@ impl RawMutex {
         Self {
             inner: Semaphore::new(1),
             owner: UnsafeCell::new(None),
+            next_held: UnsafeCell::new(core::ptr::null()),
         }
     }
 }
@@ -69,21 +72,37 @@ impl<T> Mutex<T> {
 
 impl<T: ?Sized> Mutex<T> {
     /// 获取锁，阻塞（让出）直到可用。返回 RAII 守卫，离开作用域自动解锁。
+    ///
+    /// # Panics
+    ///
+    /// 同一任务重复加锁（非重入锁）会在死锁前 panic。
     pub fn lock(&self) -> MutexGuard<'_, T> {
-        crate::scheduler::mutex_lock(&self.raw, 0);
+        assert!(
+            crate::scheduler::mutex_lock(&self.raw, None),
+            "ch32x035-rtos: blocking mutex lock must never time out"
+        );
         MutexGuard {
             mutex: self,
             data: self.data.get(),
         }
     }
 
-    /// 在 `timeout_ms` 内尝试获取锁（`None` = 永远）。
-    /// 成功返回守卫，超时返回 `None`。
-    pub fn try_lock(&self, timeout_ms: Option<u32>) -> Option<MutexGuard<'_, T>> {
-        let deadline = timeout_ms
-            .map(|ms| crate::scheduler::tick_now().wrapping_add(ms))
-            .unwrap_or(0);
-        if crate::scheduler::mutex_lock(&self.raw, deadline) {
+    /// 非阻塞尝试加锁：锁空闲则立即返回守卫，否则返回 `None`。
+    pub fn try_lock(&self) -> Option<MutexGuard<'_, T>> {
+        if crate::scheduler::mutex_lock(&self.raw, Some(0)) {
+            Some(MutexGuard {
+                mutex: self,
+                data: self.data.get(),
+            })
+        } else {
+            None
+        }
+    }
+
+    /// 在 `timeout_ms` 毫秒内等待加锁。
+    /// 成功返回守卫，超时返回 `None`（`timeout_ms == 0` 等价于 [`Mutex::try_lock`]）。
+    pub fn lock_timeout(&self, timeout_ms: u32) -> Option<MutexGuard<'_, T>> {
+        if crate::scheduler::mutex_lock(&self.raw, Some(timeout_ms)) {
             Some(MutexGuard {
                 mutex: self,
                 data: self.data.get(),
@@ -99,7 +118,7 @@ impl<T: ?Sized> Mutex<T> {
     }
 }
 
-/// [`Mutex::lock`] / [`Mutex::try_lock`] 返回的 RAII 守卫。
+/// `Mutex::lock` / `Mutex::try_lock` / `Mutex::lock_timeout` 返回的 RAII 守卫。
 ///
 /// 通过 [`Deref`]/[`DerefMut`] 访问受保护数据；离开作用域（`Drop`）自动解锁。
 pub struct MutexGuard<'a, T: ?Sized + 'a> {

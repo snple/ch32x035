@@ -14,6 +14,10 @@ pub(crate) const MAX_PRIO_ATTR: u8 = 7;
 /// 必须与 `ch32x035_rtos::task_mod::DEFAULT_STACK_SIZE` 保持一致。
 pub(crate) const DEFAULT_STACK_ATTR: usize = 2048;
 
+/// `#[task]` 可接受的最小栈大小（字节）。
+/// 必须与 `ch32x035_rtos::task_mod::MIN_STACK_SIZE` 保持一致。
+pub(crate) const MIN_STACK_ATTR: usize = 128;
+
 /// 把函数注册为任务。
 ///
 /// ```ignore
