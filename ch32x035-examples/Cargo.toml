@@ -20,6 +20,10 @@ name = "bind_demo"
 path = "src/bind_demo.rs"
 
 [[bin]]
+name = "usb_cdc"
+path = "src/usb_cdc.rs"
+
+[[bin]]
 name = "hello_uart"
 path = "src/hello_uart.rs"
 
@@ -63,6 +67,7 @@ ch32x035 = { workspace = true, default-features = false, features = ["defmt", "c
 ch32x035-pac.workspace = true
 ch32x035-rt.workspace = true
 ch32x035-rtos = { workspace = true, default-features = false }
+ch32x035-usb.workspace = true
 defmt = { workspace = true }
 defmt-rtt = { workspace = true }
 

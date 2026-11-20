@@ -74,11 +74,11 @@ pub const BASE: u32 = 0x40013000;
 ///   Clock phase
 #[repr(transparent)]
 pub struct Ctlr1 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ctlr1 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -900,11 +900,11 @@ impl Ctlr1 {
 ///   Rx buffer DMA enable
 #[repr(transparent)]
 pub struct Ctlr2 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ctlr2 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1328,11 +1328,11 @@ impl Ctlr2 {
 ///   Receive buffer not empty
 #[repr(transparent)]
 pub struct Statr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Statr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1666,11 +1666,11 @@ impl Statr {
 ///   Data register
 #[repr(transparent)]
 pub struct Datar {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Datar {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1795,11 +1795,11 @@ impl Datar {
 ///   CRC polynomial register
 #[repr(transparent)]
 pub struct Crcr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Crcr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1926,11 +1926,11 @@ impl Crcr {
 ///   Rx CRC register
 #[repr(transparent)]
 pub struct Rcrcr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Rcrcr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2035,11 +2035,11 @@ impl Rcrcr {
 ///   Tx CRC register
 #[repr(transparent)]
 pub struct Tcrcr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Tcrcr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2144,11 +2144,11 @@ impl Tcrcr {
 ///   High speed mode read enable
 #[repr(transparent)]
 pub struct Hscr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Hscr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2249,25 +2249,31 @@ pub struct RegisterBlock {
     /// 0x0000
     /// control register 1
     pub ctlr1: Ctlr1,
+    _reserved0: [u8; 2],
     /// 0x0004
     /// control register 2
     pub ctlr2: Ctlr2,
+    _reserved1: [u8; 2],
     /// 0x0008
     /// status register
     pub statr: Statr,
+    _reserved2: [u8; 2],
     /// 0x000c
     /// data register
     pub datar: Datar,
+    _reserved3: [u8; 2],
     /// 0x0010
     /// CRCR polynomial register
     pub crcr: Crcr,
+    _reserved4: [u8; 2],
     /// 0x0014
     /// RX CRC register
     pub rcrcr: Rcrcr,
+    _reserved5: [u8; 2],
     /// 0x0018
     /// send CRC register
     pub tcrcr: Tcrcr,
-    _reserved0: [u8; 8],
+    _reserved6: [u8; 10],
     /// 0x0024
     /// high speed control register
     pub hscr: Hscr,

@@ -59,11 +59,11 @@ pub const BASE: u32 = 0x40027000;
 ///   PD ITClear
 #[repr(transparent)]
 pub struct Config {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Config {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -706,11 +706,11 @@ impl Config {
 ///   R/T counter
 #[repr(transparent)]
 pub struct BmcClkCnt {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for BmcClkCnt {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -854,11 +854,11 @@ impl BmcClkCnt {
 ///   PD_TX_EN value
 #[repr(transparent)]
 pub struct Control {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for Control {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1129,11 +1129,11 @@ impl Control {
 ///   TX_SEL1 value
 #[repr(transparent)]
 pub struct TxSel {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for TxSel {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1401,11 +1401,11 @@ impl TxSel {
 ///   BMC_TX_SZ value
 #[repr(transparent)]
 pub struct BmcTxSz {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for BmcTxSz {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1532,11 +1532,11 @@ impl BmcTxSz {
 ///   DATA_BUF value
 #[repr(transparent)]
 pub struct DataBuf {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for DataBuf {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1654,11 +1654,11 @@ impl DataBuf {
 ///   BMC_AUX value
 #[repr(transparent)]
 pub struct Status {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for Status {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2091,11 +2091,11 @@ impl Status {
 ///   BMC_BYTE_CNT value
 #[repr(transparent)]
 pub struct BmcByteCnt {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for BmcByteCnt {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2201,11 +2201,11 @@ impl BmcByteCnt {
 ///   PA_CC1_AI value
 #[repr(transparent)]
 pub struct PortCc1 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for PortCc1 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2465,11 +2465,11 @@ impl PortCc1 {
 ///   PA_CC2_AI value
 #[repr(transparent)]
 pub struct PortCc2 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for PortCc2 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2743,11 +2743,11 @@ impl PortCc2 {
 ///   USBPD_DMA_ADDR value
 #[repr(transparent)]
 pub struct Dma {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Dma {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value

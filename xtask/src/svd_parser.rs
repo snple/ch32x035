@@ -123,6 +123,11 @@ fn parse_register(node: &Node) -> Result<Register> {
         .and_then(|s| parse_number(&s))
         .unwrap_or(0);
 
+    let size_bits = child_text(node, "size")
+        .and_then(|s| parse_number(&s))
+        .unwrap_or(32)
+        .clamp(8, 32);
+
     let reset_value = child_text(node, "resetValue").and_then(|s| parse_number(&s));
 
     let explicit_access = child_text(node, "access").map(|s| Access::from_str(&s));
@@ -152,6 +157,7 @@ fn parse_register(node: &Node) -> Result<Register> {
         name,
         description,
         offset,
+        size_bits,
         reset_value,
         access,
         fields,

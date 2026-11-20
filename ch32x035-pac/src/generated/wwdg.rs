@@ -23,11 +23,11 @@ pub const BASE: u32 = 0x40002c00;
 ///   7-bit counter (MSB to LSB)
 #[repr(transparent)]
 pub struct Ctlr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ctlr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -212,11 +212,11 @@ impl Ctlr {
 ///   7-bit window value
 #[repr(transparent)]
 pub struct Cfgr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Cfgr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -437,11 +437,11 @@ impl Cfgr {
 ///   Early Wakeup Interrupt Flag
 #[repr(transparent)]
 pub struct Statr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Statr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -566,10 +566,12 @@ pub struct RegisterBlock {
     /// 0x0000
     /// Control register (WWDG_CR)
     pub ctlr: Ctlr,
+    _reserved0: [u8; 2],
     /// 0x0004
     /// Configuration register
     /// (WWDG_CFR)
     pub cfgr: Cfgr,
+    _reserved1: [u8; 2],
     /// 0x0008
     /// Status register (WWDG_SR)
     pub statr: Statr,

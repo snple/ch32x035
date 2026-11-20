@@ -47,11 +47,11 @@ pub const BASE: u32 = 0x40000400;
 ///   Counter enable
 #[repr(transparent)]
 pub struct Ctlr1 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ctlr1 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -538,11 +538,11 @@ impl Ctlr1 {
 ///   Slave mode selection
 #[repr(transparent)]
 pub struct Smcfgr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Smcfgr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -726,11 +726,11 @@ impl Smcfgr {
 ///   Update interrupt enable
 #[repr(transparent)]
 pub struct Dmaintenr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Dmaintenr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1048,11 +1048,11 @@ impl Dmaintenr {
 ///   Update interrupt flag
 #[repr(transparent)]
 pub struct Intfr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Intfr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1334,11 +1334,11 @@ impl Intfr {
 ///   Update generation
 #[repr(transparent)]
 pub struct Swevgr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Swevgr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1583,11 +1583,11 @@ impl Swevgr {
 ///   selection
 #[repr(transparent)]
 pub struct Chctlr1Output {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Chctlr1Output {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2212,11 +2212,11 @@ impl Chctlr1Output {
 ///   selection
 #[repr(transparent)]
 pub struct Chctlr1Input {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Chctlr1Input {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2595,11 +2595,11 @@ impl Chctlr1Input {
 ///   enable
 #[repr(transparent)]
 pub struct Ccer {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ccer {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2901,11 +2901,11 @@ impl Ccer {
 ///   counter value
 #[repr(transparent)]
 pub struct Cnt {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Cnt {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -3031,11 +3031,11 @@ impl Cnt {
 ///   Prescaler value
 #[repr(transparent)]
 pub struct Psc {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Psc {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -3161,11 +3161,11 @@ impl Psc {
 ///   Auto-reload value
 #[repr(transparent)]
 pub struct Atrlr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Atrlr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -3292,11 +3292,11 @@ impl Atrlr {
 ///   Capture/Compare 1 value
 #[repr(transparent)]
 pub struct Ch1cvr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ch1cvr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -3423,11 +3423,11 @@ impl Ch1cvr {
 ///   Capture/Compare 2 value
 #[repr(transparent)]
 pub struct Ch2cvr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ch2cvr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -3566,11 +3566,11 @@ impl Ch2cvr {
 ///   PWM_EN
 #[repr(transparent)]
 pub struct Spec {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Spec {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -3822,50 +3822,66 @@ pub struct RegisterBlock {
     /// 0x0000
     /// control register 1
     pub ctlr1: Ctlr1,
-    _reserved0: [u8; 4],
+    _reserved0: [u8; 6],
     /// 0x0008
     /// slave mode control register
     pub smcfgr: Smcfgr,
+    _reserved1: [u8; 2],
     /// 0x000c
     /// DMA/Interrupt enable register
     pub dmaintenr: Dmaintenr,
+    _reserved2: [u8; 2],
     /// 0x0010
     /// status register
     pub intfr: Intfr,
+    _reserved3: [u8; 2],
     /// 0x0014
     /// event generation register
     pub swevgr: Swevgr,
+    _reserved4: [u8; 2],
     /// 0x0018
     /// capture/compare mode register 1 (output
     /// mode)
     pub chctlr1_output: Chctlr1Output,
-    /// 0x0018
-    /// capture/compare mode register 1 (input
-    /// mode)
-    pub chctlr1_input: Chctlr1Input,
-    _reserved1: [u8; 4],
+    _reserved5: [u8; 6],
     /// 0x0020
     /// capture/compare enable
     /// register
     pub ccer: Ccer,
+    _reserved6: [u8; 2],
     /// 0x0024
     /// counter
     pub cnt: Cnt,
+    _reserved7: [u8; 2],
     /// 0x0028
     /// prescaler
     pub psc: Psc,
+    _reserved8: [u8; 2],
     /// 0x002c
     /// auto-reload register
     pub atrlr: Atrlr,
-    _reserved2: [u8; 4],
+    _reserved9: [u8; 6],
     /// 0x0034
     /// capture/compare register 1
     pub ch1cvr: Ch1cvr,
+    _reserved10: [u8; 2],
     /// 0x0038
     /// capture/compare register 2
     pub ch2cvr: Ch2cvr,
-    _reserved3: [u8; 20],
+    _reserved11: [u8; 22],
     /// 0x0050
     /// SPEC
     pub spec: Spec,
+}
+
+impl RegisterBlock {
+    /// Alternate view at offset 0x0018
+    /// capture/compare mode register 1 (input
+    /// mode)
+    #[inline(always)]
+    pub fn chctlr1_input(&self) -> &Chctlr1Input {
+        // SAFETY: the alias view has the same offset
+        // and size as the primary field.
+        unsafe { &*core::ptr::addr_of!(self.chctlr1_output).cast() }
+    }
 }

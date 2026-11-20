@@ -16,6 +16,7 @@ ch32x035/             # 工作区根
 ├── ch32x035-pac/     # 由 SVD 生成的 PAC（勿手改）
 ├── ch32x035-rt/      # 运行时：reset handler、栈、中断向量
 ├── ch32x035-macro/   # 过程宏：#[main] #[exception] #[bind] ramfunc
+├── ch32x035-usb/     # USB 设备栈（UsbBus / UsbDevice / CDC / HID）
 ├── ch32x035-examples/# 各外设的独立二进制示例
 └── xtask/            # PAC/SVD 生成器
 ```
@@ -23,7 +24,11 @@ ch32x035/             # 工作区根
 与 rp2350 的差异：
 
 - **usbpd 是 HAL 内的子模块**（`ch32x035/src/usbpd/`），不是独立 crate。
-- 没有独立的 `-drivers`/`-usb` crate（ch32x035 无 USB 设备栈、设备驱动较少）。
+- USB **设备**栈是独立 crate `ch32x035-usb`：通用核心（`UsbBus` trait、
+  `UsbDevice`、控制传输、CDC/HID/GS_USB/i2c-tiny-usb/UAC class）放在跨仓库共享的 `usb-stack` crate，
+  `ch32x035-usb` 只保留 `UsbfsBus` 硬件驱动并重新导出；HAL 只提供 AFIO 的
+  USB PHY 配置。
+- 没有独立的 `-drivers` crate（设备驱动较少）。
 - `edition = "2024"`，`#[deny(missing_docs)]` + `#![allow(clippy::missing_safety_doc)]`。
 
 ---
@@ -93,6 +98,11 @@ impl Foo {
 - 寄存器访问用 `VolatileCell<u32>`（**不是 rp2350 的 `AtomicCell`**）：只有
   `read_bits`/`write_bits`/`modify_bits`，`modify_bits` 是读-改-写、**非原子**，
   没有 SET/CLR 硬件别名。清中断/清标志的 W1C 位用 `write_bits(mask)`。
+- 寄存器宽度取 SVD 的 `<size>`：8/16 位寄存器用 `VolatileCellU8`/`VolatileCellU16`
+  （同样提供 u32 版 `read_bits`/`write_bits`/`modify_bits`）。USBFS/USBPD 的寄存器
+  是**字节排布**，用 32 位访问会踩到相邻寄存器，因此必须保持宽度。
+- 同一 offset 的多个寄存器（TIM1/TIM3 的 `CHCTLR1/2_Input` vs `_Output`）只生成
+  一个字段，其余作为 `RegisterBlock::chctlr1_input()` 别名方法。
 - 字段命名统一：`fn field()` 读、`fn write_field(v)` 写多位数、
   `fn set_field()`/`fn clr_field()` 操作单比特位。
 - **禁止裸指针 + 魔法数访问寄存器**（DMA 的 raw 访问是历史遗留，新代码走 PAC）。

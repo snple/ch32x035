@@ -9,6 +9,7 @@ members = [
     "ch32x035-examples",
     "ch32x035-rtos",
     "ch32x035-rtos-macro",
+    "ch32x035-usb",
 ]
 
 [workspace.package]
@@ -16,6 +17,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.100"
 license = "MIT OR Apache-2.0"
+repository = "https://github.com/snple/ch32x035.git"
 
 [workspace.dependencies]
 # Logging
@@ -32,10 +34,12 @@ enumflags2 = "0.7"
 # Local crates
 # ch32x035 (HAL) defaults to no features at the workspace level; each
 # consumer (examples) explicitly forwards the features it needs.
-ch32x035 = { path = "ch32x035", default-features = false }
-ch32x035-rt = { path = "ch32x035-rt" }
-ch32x035-pac = { path = "ch32x035-pac" }
-ch32x035-macro = { path = "ch32x035-macro" }
+ch32x035 = { version = "0.1.0", path = "ch32x035", default-features = false }
+ch32x035-rt = { version = "0.1.0", path = "ch32x035-rt" }
+ch32x035-pac = { version = "0.1.0", path = "ch32x035-pac" }
+ch32x035-macro = { version = "0.1.0", path = "ch32x035-macro" }
+ch32x035-usb = { version = "0.1.0", path = "ch32x035-usb", default-features = false }
+usb-stack = { version = "0.1.0", default-features = false }
 ch32x035-rtos = { path = "ch32x035-rtos", default-features = false }
 ch32x035-rtos-macro = { path = "ch32x035-rtos-macro" }
 

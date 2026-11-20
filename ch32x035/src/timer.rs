@@ -432,9 +432,9 @@ macro_rules! impl_timer_capture {
             /// `falling` selects a falling-edge trigger (rising edge
             /// otherwise).
             pub fn configure_ch1(&mut self, filter: u8, falling: bool) {
-                self.tim.chctlr1_input.write_cc1s(0b01);
-                self.tim.chctlr1_input.write_ic1f(filter as u32);
-                self.tim.chctlr1_input.write_ic1psc(0);
+                self.tim.chctlr1_input().write_cc1s(0b01);
+                self.tim.chctlr1_input().write_ic1f(filter as u32);
+                self.tim.chctlr1_input().write_ic1psc(0);
                 if falling {
                     self.tim.ccer.set_cc1p();
                 } else {
@@ -449,9 +449,9 @@ macro_rules! impl_timer_capture {
             /// `falling` selects a falling-edge trigger (rising edge
             /// otherwise).
             pub fn configure_ch2(&mut self, filter: u8, falling: bool) {
-                self.tim.chctlr1_input.write_cc2s(0b10);
-                self.tim.chctlr1_input.write_ic2f(filter as u32);
-                self.tim.chctlr1_input.write_ic2pcs(0);
+                self.tim.chctlr1_input().write_cc2s(0b10);
+                self.tim.chctlr1_input().write_ic2f(filter as u32);
+                self.tim.chctlr1_input().write_ic2pcs(0);
                 if falling {
                     self.tim.ccer.set_cc2p();
                 } else {
@@ -571,10 +571,10 @@ macro_rules! impl_timer_encoder {
                 // Encoder interface mode 3: count on both TI1 and TI2 edges.
                 p.tim.smcfgr.write_sms(0b011);
                 // Channels 1 and 2 as direct inputs, no filter.
-                p.tim.chctlr1_input.write_cc1s(0b01);
-                p.tim.chctlr1_input.write_cc2s(0b01);
-                p.tim.chctlr1_input.write_ic1f(0);
-                p.tim.chctlr1_input.write_ic2f(0);
+                p.tim.chctlr1_input().write_cc1s(0b01);
+                p.tim.chctlr1_input().write_cc2s(0b01);
+                p.tim.chctlr1_input().write_ic1f(0);
+                p.tim.chctlr1_input().write_ic2f(0);
                 // Trigger on both edges (clear CC1P / CC2P).
                 p.tim.ccer.clr_cc1p();
                 p.tim.ccer.clr_cc2p();

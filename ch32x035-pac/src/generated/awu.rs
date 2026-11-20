@@ -19,11 +19,11 @@ pub const BASE: u32 = 0x40026400;
 ///   AWU Enable
 #[repr(transparent)]
 pub struct R16AwuCsr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for R16AwuCsr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -156,11 +156,11 @@ impl R16AwuCsr {
 ///   AWU_APR value
 #[repr(transparent)]
 pub struct R16AwuWr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for R16AwuWr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -287,11 +287,11 @@ impl R16AwuWr {
 ///   AWU_TBR value
 #[repr(transparent)]
 pub struct R16AwuPsc {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for R16AwuPsc {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -410,9 +410,11 @@ pub struct RegisterBlock {
     /// 0x0000
     /// Status Control register
     pub r16_awu_csr: R16AwuCsr,
+    _reserved0: [u8; 2],
     /// 0x0004
     /// AWU Window register
     pub r16_awu_wr: R16AwuWr,
+    _reserved1: [u8; 2],
     /// 0x0008
     /// R16_AWU_PSC
     pub r16_awu_psc: R16AwuPsc,

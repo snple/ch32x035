@@ -9,6 +9,8 @@ ch32x035-examples   →  ch32x035 (HAL)
                           ├─ ch32x035-rt    (RISC-V runtime: startup, PFIC, SysTick)
                           ├─ ch32x035-pac   (register access, SVD-generated)
                           └─ ch32x035-macro (#[main] / #[exception] / #[bind] / #[ramfunc])
+
+ch32x035-examples   →  ch32x035-usb (USB device stack: UsbBus, device, CDC/HID)
 ```
 
 | Crate | Purpose |
@@ -17,7 +19,8 @@ ch32x035-examples   →  ch32x035 (HAL)
 | `ch32x035-rt` | Runtime support: RISC-V assembly/CSR access, PFIC interrupt controller, SysTick, reset handler + vector table, linker script (`link.x`). |
 | `ch32x035-macro` | Procedural macros: `#[main]`, `#[exception]`, `#[bind(IRQ)]`, `#[ramfunc]`. |
 | `ch32x035` | Hardware Abstraction Layer: `gpio`, `rcc`, `reset`, `uart`, `spi`, `i2c`, `adc`, `dma`, `timer`, `exti`, `afio`, `awu`, `opa`, `esig`, `usbpd`, `pwr`, `watchdog`, `flash`, `delay`, `time`, `interrupt`. |
-| `ch32x035-examples` | `blink` and `hello_uart` examples. |
+| `ch32x035-usb` | USB **device** stack for the USBFS controller: `UsbfsBus` (bus layer) plus the shared [`usb-stack`](../../rp2350/usb-stack) core (`UsbDevice`, CDC-ACM, HID, GS_USB, i2c-tiny-usb, UAC), the same core used by `rp2350-usb`. |
+| `ch32x035-examples` | Peripheral examples, including `usb_cdc` (virtual serial echo). |
 | `xtask` | PAC code generator (adapted from rp2350). |
 
 ## Target
@@ -39,6 +42,17 @@ cargo build -p ch32x035 --target riscv32imac-unknown-none-elf
 # Examples
 cargo build -p ch32x035-examples --bin blink --target riscv32imac-unknown-none-elf --release
 cargo build -p ch32x035-examples --bin hello_uart --target riscv32imac-unknown-none-elf --release
+cargo build -p ch32x035-examples --bin usb_cdc --target riscv32imac-unknown-none-elf --release
+```
+
+USB example (enumerates as a CDC ACM port with VID:PID `1209:0001`):
+
+```sh
+cd ch32x035-examples
+cargo run --bin usb_cdc --release
+# on the host:
+lsusb | grep 1209:0001
+picocom -b 115200 /dev/ttyACM<n>
 ```
 
 ## Regenerating the PAC
@@ -117,6 +131,8 @@ Switch to RISC-V mode with the **ModeS button**:
 - **Core**: WCH QingKe V4C, RV32IMAC, single core, machine mode.
 - **Clocks**: boots on the internal HSI at **48 MHz** (no PLL in the SVD).
 - **Memory**: 62K flash @ 0x00000000, 20K RAM @ 0x20000000.
+- **USB**: USBFS full-speed device controller at 0x4002_3400 (8 endpoints,
+  64-byte packets, byte-spaced 8/16/32-bit registers). USB D−/D+ are PC16/PC17.
 - **Interrupts**: WCH **PFIC** at 0xE000_E000 (NVIC-like), SysTick at
   0xE000_F000. The vector table is an array of handler addresses in flash
   (entry 0 = reset, 1-15 = core exceptions, 16-54 = external interrupts);

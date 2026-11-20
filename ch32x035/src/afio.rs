@@ -204,12 +204,33 @@ pub enum Tim3Remap {
     Remap3 = 0b11,
 }
 
+/// USB FS PHY supply configuration.
+///
+/// Selects the D+ pull-up value used to signal full-speed attachment.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
+pub enum UsbPhySupply {
+    /// Device powered from 3.3 V: internal 1.5 kΩ pull-up, PHY limiter on.
+    V33,
+    /// Device powered from 5 V: 10 kΩ pull-up, PHY limiter off.
+    V5,
+}
+
 /// AFIO driver
 pub struct Afio {
     afio: pac::AFIO,
 }
 
 impl Afio {
+    /// `CTLR.UDP_PUE` (D+ pull-up) mask
+    const UDP_PUE_MASK: u32 = 0x0000_000c;
+    /// `CTLR.UDM_PUE` (D− pull-up) mask
+    const UDM_PUE_MASK: u32 = 0x0000_0003;
+    /// D+ 1.5 kΩ pull-up (full-speed device, 3.3 V supply)
+    const UDP_PUE_1K5: u32 = 0x0000_000c;
+    /// D+ 10 kΩ pull-up (5 V supply)
+    const UDP_PUE_10K: u32 = 0x0000_0008;
+
     /// Create a new AFIO driver, enabling the AFIO clock.
     pub fn init(afio: pac::AFIO, rcc: &mut Rcc) -> Self {
         rcc.apb2_enable(Apb2Periph::Afio);
@@ -335,11 +356,29 @@ impl Afio {
         self.afio.ctlr.set_usbpd_phy_v33();
     }
 
-    /// Enable the USB FS PHY (for [`crate::pac::USBFS`]).
+    /// Enable the USB FS PHY and its D+ pull-up (for [`crate::pac::USBFS`]).
+    ///
+    /// The pull-up value depends on the board supply: a 3.3 V powered device
+    /// uses the internal 1.5 kΩ pull-up (USB full-speed requirement), while a
+    /// 5 V powered device selects the 10 kΩ pull-up and leaves the PHY
+    /// limiter disabled, mirroring the WCH SDK.
     #[inline(always)]
-    pub fn configure_usb_phy(&mut self) {
+    pub fn configure_usb_phy(&mut self, supply: UsbPhySupply) {
+        // Clear both pull-up fields first (they are read-modify-write).
+        self.afio
+            .ctlr
+            .modify_bits(|v| v & !(Self::UDP_PUE_MASK | Self::UDM_PUE_MASK));
         self.afio.ctlr.set_usb_ioen();
-        self.afio.ctlr.set_usb_phy_v33();
+        match supply {
+            UsbPhySupply::V33 => {
+                self.afio.ctlr.set_usb_phy_v33();
+                self.afio.ctlr.modify_bits(|v| v | Self::UDP_PUE_1K5);
+            }
+            UsbPhySupply::V5 => {
+                self.afio.ctlr.clr_usb_phy_v33();
+                self.afio.ctlr.modify_bits(|v| v | Self::UDP_PUE_10K);
+            }
+        }
     }
 
     /// Consume the driver and return the underlying peripheral.

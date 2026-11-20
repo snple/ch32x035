@@ -19,11 +19,11 @@ pub const BASE: u32 = 0x1ffff7e0;
 ///   F_SIZE/kByte
 #[repr(transparent)]
 pub struct Flacap {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Flacap {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -403,7 +403,7 @@ pub struct RegisterBlock {
     /// 0x0000
     /// Flash capecity register
     pub flacap: Flacap,
-    _reserved0: [u8; 4],
+    _reserved0: [u8; 6],
     /// 0x0008
     /// UID register
     pub uniid1: Uniid1,

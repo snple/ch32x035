@@ -66,9 +66,18 @@ pub struct Register {
     pub name: String,
     pub description: String,
     pub offset: u32,
+    /// Register width in bits (8, 16 or 32), from the SVD `<size>` element.
+    pub size_bits: u32,
     pub reset_value: Option<u32>,
     pub access: Access,
     pub fields: Vec<Field>,
+}
+
+impl Register {
+    /// Register width in bytes.
+    pub fn size_bytes(&self) -> u32 {
+        self.size_bits / 8
+    }
 }
 
 /// An interrupt definition

@@ -75,11 +75,11 @@ pub const BASE: u32 = 0x40026000;
 ///   POLL_EN1 Enable
 #[repr(transparent)]
 pub struct Cfgr1 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Cfgr1 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -934,11 +934,11 @@ impl Cfgr1 {
 ///   POLL_VLU Configuration
 #[repr(transparent)]
 pub struct Cfgr2 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Cfgr2 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value

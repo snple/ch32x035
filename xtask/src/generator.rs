@@ -1,8 +1,15 @@
 //! Rust code generator - Proper memory-mapped registers with field accessors
 //!
 //! Generates PAC code where:
-//! - Each register is a `#[repr(transparent)]` struct with `UnsafeCell<u32>`
+//! - Each register is a `#[repr(transparent)]` struct wrapping a volatile cell
+//!   of the width declared in the SVD (`<size>`): 8, 16 or 32 bits. The cells
+//!   expose a uniform `u32`-based `read_bits`/`write_bits`/`modify_bits` API,
+//!   so accessors are width-agnostic while the bus access stays correct (USBFS
+//!   and USBPD place 8/16-bit registers at byte offsets).
 //! - RegisterBlock is a `#[repr(C)]` struct that directly maps to hardware memory
+//! - Registers that share an offset (alternate views, e.g. TIM CHCTLR input vs
+//!   output mode) are emitted as one field plus an accessor method returning
+//!   the alias view.
 //! - Each register has field accessor methods with proper documentation
 //!
 //! Adapted from the rp2350 project generator for the CH32X035 (RISC-V, WCH
@@ -571,6 +578,83 @@ impl<T: Copy> VolatileCell<T> {
     }
 }
 
+/// A volatile 8-bit register cell.
+///
+/// Presents the same `u32`-based `read_bits` / `write_bits` / `modify_bits`
+/// API as [`VolatileCell<u32>`] so register accessors are width-agnostic,
+/// while the actual bus access stays 8 bits wide. Used by byte-spaced
+/// peripherals such as USBFS and USBPD.
+#[repr(transparent)]
+pub struct VolatileCellU8 {
+    value: UnsafeCell<u8>,
+}
+
+unsafe impl Send for VolatileCellU8 {}
+unsafe impl Sync for VolatileCellU8 {}
+
+impl VolatileCellU8 {
+    /// Get a raw pointer to the underlying value
+    #[inline(always)]
+    pub const fn as_ptr(&self) -> *mut u8 {
+        self.value.get()
+    }
+
+    /// Read the register with volatile semantics
+    #[inline(always)]
+    pub fn read_bits(&self) -> u32 {
+        unsafe { read_volatile(self.value.get()) as u32 }
+    }
+
+    /// Write the register with volatile semantics (upper bits ignored)
+    #[inline(always)]
+    pub fn write_bits(&self, value: u32) {
+        unsafe { write_volatile(self.value.get(), value as u8) }
+    }
+
+    /// Modify the register using a closure
+    #[inline(always)]
+    pub fn modify_bits<F: FnOnce(u32) -> u32>(&self, f: F) {
+        self.write_bits(f(self.read_bits()));
+    }
+}
+
+/// A volatile 16-bit register cell.
+///
+/// See [`VolatileCellU8`]; the actual bus access is 16 bits wide.
+#[repr(transparent)]
+pub struct VolatileCellU16 {
+    value: UnsafeCell<u16>,
+}
+
+unsafe impl Send for VolatileCellU16 {}
+unsafe impl Sync for VolatileCellU16 {}
+
+impl VolatileCellU16 {
+    /// Get a raw pointer to the underlying value
+    #[inline(always)]
+    pub const fn as_ptr(&self) -> *mut u16 {
+        self.value.get()
+    }
+
+    /// Read the register with volatile semantics
+    #[inline(always)]
+    pub fn read_bits(&self) -> u32 {
+        unsafe { read_volatile(self.value.get()) as u32 }
+    }
+
+    /// Write the register with volatile semantics (upper bits ignored)
+    #[inline(always)]
+    pub fn write_bits(&self, value: u32) {
+        unsafe { write_volatile(self.value.get(), value as u16) }
+    }
+
+    /// Modify the register using a closure
+    #[inline(always)]
+    pub fn modify_bits<F: FnOnce(u32) -> u32>(&self, f: F) {
+        self.write_bits(f(self.read_bits()));
+    }
+}
+
 /// Spin until condition is true
 #[inline(always)]
 pub fn wait_until<F: Fn() -> bool>(cond: F) {
@@ -692,11 +776,17 @@ fn write_register_struct(out: &mut String, reg: &Register, supports_atomic: bool
     // The CH32X035 has no atomic register aliases, so every register (except
     // read-only ones) uses a VolatileCell. set/clr accessors therefore do a
     // plain read-modify-write.
+    //
+    // Registers keep their SVD-declared width: the USBFS/USBPD blocks place
+    // 8- and 16-bit registers at byte offsets, so a 32-bit access would hit
+    // neighbouring registers. The narrow cells expose the same u32-based
+    // `read_bits` / `write_bits` / `modify_bits` API as `VolatileCell<u32>`.
     let writable = !matches!(reg.access, Access::ReadOnly);
-    let cell_type = if supports_atomic && writable {
-        "crate::common::AtomicCell<u32>"
-    } else {
-        "crate::common::VolatileCell<u32>"
+    let cell_type = match (supports_atomic && writable, reg.size_bits) {
+        (true, _) => "crate::common::AtomicCell<u32>",
+        (false, 8) => "crate::common::VolatileCellU8",
+        (false, 16) => "crate::common::VolatileCellU16",
+        _ => "crate::common::VolatileCell<u32>",
     };
 
     writeln!(out, "#[repr(transparent)]")?;
@@ -1281,13 +1371,29 @@ fn write_register_block(
     writeln!(out, "#[repr(C)]")?;
     writeln!(out, "pub struct RegisterBlock {{")?;
 
+    // Stable sort keeps the SVD declaration order for registers that share an
+    // offset (e.g. TIM1's CHCTLR1 input/output views).
     let mut sorted_regs: Vec<_> = registers.iter().collect();
     sorted_regs.sort_by_key(|r| r.offset);
 
     let mut prev_end: u32 = 0;
     let mut padding_idx = 0;
+    let mut primary_by_offset: HashMap<u32, &Register> = HashMap::new();
+    let mut aliases: Vec<(&Register, &Register)> = Vec::new();
 
     for reg in &sorted_regs {
+        // Registers at an already occupied offset are alternate views of the
+        // same hardware register (the SVD models mode-dependent layouts this
+        // way). They cannot be separate struct fields, so advertise them as
+        // accessor methods after the block instead.
+        if reg.offset < prev_end {
+            if let Some(&primary) = primary_by_offset.get(&reg.offset) {
+                aliases.push((primary, reg));
+            }
+            continue;
+        }
+        primary_by_offset.insert(reg.offset, reg);
+
         if reg.offset > prev_end {
             let gap = reg.offset - prev_end;
             writeln!(out, "    _reserved{}: [u8; {}],", padding_idx, gap)?;
@@ -1305,11 +1411,46 @@ fn write_register_block(
         }
         writeln!(out, "    pub {}: {},", field_name, type_name)?;
 
-        prev_end = reg.offset + 4;
+        prev_end = reg.offset + reg.size_bytes();
     }
 
     writeln!(out, "}}")?;
     writeln!(out)?;
+
+    if !aliases.is_empty() {
+        writeln!(out, "impl RegisterBlock {{")?;
+        for (primary, alias) in aliases {
+            let primary_field = primary.name.to_snake_case();
+            let alias_type = alias.name.to_upper_camel_case();
+            let alias_name = alias.name.to_snake_case();
+            writeln!(
+                out,
+                "    /// Alternate view at offset {:#06x}",
+                alias.offset
+            )?;
+            if !alias.description.is_empty() {
+                for line in clean_desc(&alias.description).lines() {
+                    writeln!(out, "    /// {}", line)?;
+                }
+            }
+            writeln!(out, "    #[inline(always)]")?;
+            writeln!(
+                out,
+                "    pub fn {}(&self) -> &{} {{",
+                alias_name, alias_type
+            )?;
+            writeln!(out, "        // SAFETY: the alias view has the same offset")?;
+            writeln!(out, "        // and size as the primary field.")?;
+            writeln!(
+                out,
+                "        unsafe {{ &*core::ptr::addr_of!(self.{}).cast() }}",
+                primary_field
+            )?;
+            writeln!(out, "    }}")?;
+        }
+        writeln!(out, "}}")?;
+        writeln!(out)?;
+    }
 
     Ok(())
 }

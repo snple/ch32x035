@@ -43,11 +43,11 @@ pub const BASE: u32 = 0x40023400;
 ///   DMA enable and DMA interrupt enable for USB
 #[repr(transparent)]
 pub struct BaseCtrl {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for BaseCtrl {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -501,11 +501,11 @@ impl BaseCtrl {
 ///   RB_UH_PORT_EN
 #[repr(transparent)]
 pub struct HostCtrlUdevCtrl {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for HostCtrlUdevCtrl {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -865,11 +865,11 @@ impl HostCtrlUdevCtrl {
 ///   enable interrupt for USB bus reset event for USB device mode;enable interrupt for USB device detected event for USB host mode
 #[repr(transparent)]
 pub struct IntEn {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for IntEn {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1310,11 +1310,11 @@ impl IntEn {
 ///   bit mask for USB device address
 #[repr(transparent)]
 pub struct DevAddr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for DevAddr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1470,11 +1470,11 @@ impl DevAddr {
 ///   RB_UMS_DEV_ATTACH
 #[repr(transparent)]
 pub struct MisSt {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for MisSt {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1884,11 +1884,11 @@ impl MisSt {
 ///   RB_UIF_BUS_RST_RB_UIF_DETECT
 #[repr(transparent)]
 pub struct IntFg {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for IntFg {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2314,11 +2314,11 @@ impl IntFg {
 ///   MASK_UIS_H_RES_MASK_UIS_ENDP
 #[repr(transparent)]
 pub struct IntSt {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for IntSt {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2488,11 +2488,11 @@ impl IntSt {
 ///   USB_RX_LEN
 #[repr(transparent)]
 pub struct RxLen {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for RxLen {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2602,11 +2602,11 @@ impl RxLen {
 ///   EP4_T_EN
 #[repr(transparent)]
 pub struct Uep41Mod {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for Uep41Mod {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2963,11 +2963,11 @@ impl Uep41Mod {
 ///   EP2_BUF_MOD_RB_UH_EP_RBUF_MOD
 #[repr(transparent)]
 pub struct Uep23ModHostEpMod {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for Uep23ModHostEpMod {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -3383,11 +3383,11 @@ impl Uep23ModHostEpMod {
 ///   EP5_T_EN
 #[repr(transparent)]
 pub struct Uep567Mod {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU8,
 }
 
 impl core::ops::Deref for Uep567Mod {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU8;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -4311,11 +4311,11 @@ impl Uep3DmaHostTxDma {
 ///   EP0_T_LEN
 #[repr(transparent)]
 pub struct Uep0TxLen {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep0TxLen {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -4454,11 +4454,11 @@ impl Uep0TxLen {
 ///   EP0_T_RES
 #[repr(transparent)]
 pub struct Uep0CtrlH {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep0CtrlH {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -4732,11 +4732,11 @@ impl Uep0CtrlH {
 ///   EP1_T_LEN
 #[repr(transparent)]
 pub struct Uep1TxLen {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep1TxLen {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -4879,11 +4879,11 @@ impl Uep1TxLen {
 ///   EP1_T_RES
 #[repr(transparent)]
 pub struct Uep1CtrlHHostSetup {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep1CtrlHHostSetup {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -5214,11 +5214,11 @@ impl Uep1CtrlHHostSetup {
 ///   EP2_T_LEN
 #[repr(transparent)]
 pub struct Uep2TxLen {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep2TxLen {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -5361,11 +5361,11 @@ impl Uep2TxLen {
 ///   EP2_T_RES
 #[repr(transparent)]
 pub struct Uep2CtrlH {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep2CtrlH {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -5690,11 +5690,11 @@ impl Uep2CtrlH {
 ///   EP3_T_LEN
 #[repr(transparent)]
 pub struct Uep3TxLen {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep3TxLen {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -5837,11 +5837,11 @@ impl Uep3TxLen {
 ///   EP3_T_RES
 #[repr(transparent)]
 pub struct Uep3CtrlH {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep3CtrlH {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -6166,11 +6166,11 @@ impl Uep3CtrlH {
 ///   EP4_T_LEN
 #[repr(transparent)]
 pub struct Uep4TxLen {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep4TxLen {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -6309,11 +6309,11 @@ impl Uep4TxLen {
 ///   EP4_T_RES
 #[repr(transparent)]
 pub struct Uep4CtrlH {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep4CtrlH {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -6983,11 +6983,11 @@ impl Uep7Dma {
 ///   EP5_T_LEN
 #[repr(transparent)]
 pub struct Uep5TxLen {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep5TxLen {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -7130,11 +7130,11 @@ impl Uep5TxLen {
 ///   EP5_T_RES
 #[repr(transparent)]
 pub struct Uep5CtrlH {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep5CtrlH {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -7459,11 +7459,11 @@ impl Uep5CtrlH {
 ///   EP6_T_LEN
 #[repr(transparent)]
 pub struct Uep6TxLen {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep6TxLen {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -7606,11 +7606,11 @@ impl Uep6TxLen {
 ///   EP6_T_RES
 #[repr(transparent)]
 pub struct Uep6CtrlH {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep6CtrlH {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -7935,11 +7935,11 @@ impl Uep6CtrlH {
 ///   EP7_T_LEN
 #[repr(transparent)]
 pub struct Uep7TxLen {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep7TxLen {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -8082,11 +8082,11 @@ impl Uep7TxLen {
 ///   EP7_T_RES
 #[repr(transparent)]
 pub struct Uep7CtrlH {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Uep7CtrlH {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -8641,6 +8641,7 @@ pub struct RegisterBlock {
     /// 0x0003
     /// USB device address
     pub dev_addr: DevAddr,
+    _reserved0: [u8; 1],
     /// 0x0005
     /// USB_MIS_ST
     pub mis_st: MisSt,
@@ -8653,6 +8654,7 @@ pub struct RegisterBlock {
     /// 0x0008
     /// USB_RX_LEN
     pub rx_len: RxLen,
+    _reserved1: [u8; 2],
     /// 0x000c
     /// UEP4_1_MOD
     pub uep4_1_mod: Uep41Mod,
@@ -8662,6 +8664,7 @@ pub struct RegisterBlock {
     /// 0x000e
     /// UEP567_MOD
     pub uep567_mod: Uep567Mod,
+    _reserved2: [u8; 1],
     /// 0x0010
     /// UEP0_DMA
     pub uep0_dma: Uep0Dma,
@@ -8704,7 +8707,7 @@ pub struct RegisterBlock {
     /// 0x0032
     /// UEP4_CTRL_H
     pub uep4_ctrl_h: Uep4CtrlH,
-    _reserved0: [u8; 30],
+    _reserved3: [u8; 32],
     /// 0x0054
     /// UEP5_DMA
     pub uep5_dma: Uep5Dma,
@@ -8714,7 +8717,7 @@ pub struct RegisterBlock {
     /// 0x005c
     /// UEP7_DMA
     pub uep7_dma: Uep7Dma,
-    _reserved1: [u8; 4],
+    _reserved4: [u8; 4],
     /// 0x0064
     /// UEP5_TX_LEN
     pub uep5_tx_len: Uep5TxLen,

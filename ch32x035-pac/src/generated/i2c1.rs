@@ -61,11 +61,11 @@ pub const BASE: u32 = 0x40005400;
 ///   Peripheral enable
 #[repr(transparent)]
 pub struct Ctlr1 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ctlr1 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -736,11 +736,11 @@ impl Ctlr1 {
 ///   Peripheral clock frequency
 #[repr(transparent)]
 pub struct Ctlr2 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ctlr2 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1135,11 +1135,11 @@ impl Ctlr2 {
 ///   Interface address
 #[repr(transparent)]
 pub struct Oaddr1 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Oaddr1 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1422,11 +1422,11 @@ impl Oaddr1 {
 ///   enable
 #[repr(transparent)]
 pub struct Oaddr2 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Oaddr2 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1608,11 +1608,11 @@ impl Oaddr2 {
 ///   8-bit data register
 #[repr(transparent)]
 pub struct Datar {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Datar {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -1789,11 +1789,11 @@ impl Datar {
 ///   Start bit (Master mode)
 #[repr(transparent)]
 pub struct Star1 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Star1 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2372,11 +2372,11 @@ impl Star1 {
 ///   Master/slave
 #[repr(transparent)]
 pub struct Star2 {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Star2 {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2607,11 +2607,11 @@ impl Star2 {
 ///   mode (Master mode)
 #[repr(transparent)]
 pub struct Ckcfgr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ckcfgr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -2837,24 +2837,31 @@ pub struct RegisterBlock {
     /// 0x0000
     /// Control register 1
     pub ctlr1: Ctlr1,
+    _reserved0: [u8; 2],
     /// 0x0004
     /// Control register 2
     pub ctlr2: Ctlr2,
+    _reserved1: [u8; 2],
     /// 0x0008
     /// Own address register 1
     pub oaddr1: Oaddr1,
+    _reserved2: [u8; 2],
     /// 0x000c
     /// Own address register 2
     pub oaddr2: Oaddr2,
+    _reserved3: [u8; 2],
     /// 0x0010
     /// Data register
     pub datar: Datar,
+    _reserved4: [u8; 2],
     /// 0x0014
     /// Status register 1
     pub star1: Star1,
+    _reserved5: [u8; 2],
     /// 0x0018
     /// Status register 2
     pub star2: Star2,
+    _reserved6: [u8; 2],
     /// 0x001c
     /// Clock control register
     pub ckcfgr: Ckcfgr,

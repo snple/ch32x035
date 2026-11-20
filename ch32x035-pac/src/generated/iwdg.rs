@@ -19,11 +19,11 @@ pub const BASE: u32 = 0x40003000;
 ///   Key value
 #[repr(transparent)]
 pub struct Ctlr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Ctlr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -120,11 +120,11 @@ impl Ctlr {
 ///   Prescaler divider
 #[repr(transparent)]
 pub struct Pscr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Pscr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -250,11 +250,11 @@ impl Pscr {
 ///   value
 #[repr(transparent)]
 pub struct Rldr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Rldr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -390,11 +390,11 @@ impl Rldr {
 ///   update
 #[repr(transparent)]
 pub struct Statr {
-    value: crate::common::VolatileCell<u32>,
+    value: crate::common::VolatileCellU16,
 }
 
 impl core::ops::Deref for Statr {
-    type Target = crate::common::VolatileCell<u32>;
+    type Target = crate::common::VolatileCellU16;
     #[inline(always)]
     fn deref(&self) -> &Self::Target {
         &self.value
@@ -512,12 +512,15 @@ pub struct RegisterBlock {
     /// 0x0000
     /// Key register (IWDG_CTLR)
     pub ctlr: Ctlr,
+    _reserved0: [u8; 2],
     /// 0x0004
     /// Prescaler register (IWDG_PSCR)
     pub pscr: Pscr,
+    _reserved1: [u8; 2],
     /// 0x0008
     /// Reload register (IWDG_RLDR)
     pub rldr: Rldr,
+    _reserved2: [u8; 2],
     /// 0x000c
     /// Status register (IWDG_SR)
     pub statr: Statr,
