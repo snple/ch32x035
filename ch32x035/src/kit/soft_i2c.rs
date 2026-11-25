@@ -96,8 +96,9 @@ pub enum Error {
 
 /// Bit-banged I2C master on two GPIO pins.
 ///
-/// The SDA/SCL lines are addressed as `(port, pin)` tuples (see [`new`]) and
-/// driven in open-drain style through the runtime-indexed GPIO accessors.
+/// The SDA/SCL lines are addressed as `(port, pin)` tuples (see
+/// [`SoftI2c::new`]) and driven in open-drain style through the
+/// runtime-indexed GPIO accessors.
 /// `D` is the delay provider (usually [`Delay`](crate::delay::Delay)).
 pub struct SoftI2c<D: DelayUs> {
     sda: (u32, u32),

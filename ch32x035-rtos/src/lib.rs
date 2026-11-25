@@ -2,7 +2,7 @@
 //!
 //! # 概览
 //!
-//! 任务由 [`task`] 属性宏注册。调度是协作式的：任务一直运行到主动调用
+//! 任务由 [`task`](macro@task) 属性宏注册。调度是协作式的：任务一直运行到主动调用
 //! [`yield_now`] 让出、[`sleep`] 睡眠，或阻塞在 [`sync::Semaphore`] /
 //! [`sync::Mutex`] 上。静态优先级只决定让出点选择哪个任务运行；高优先级任务
 //! 不会抢占正在运行的任务。
@@ -28,7 +28,7 @@ pub mod context;
 pub mod scheduler;
 pub mod sync;
 pub mod task;
-/// [`task`] 宏展开时使用的别名。
+/// [`task`](macro@task) 宏展开时使用的别名。
 pub use task as task_mod;
 
 mod tick;

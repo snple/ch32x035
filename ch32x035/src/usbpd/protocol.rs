@@ -187,7 +187,7 @@ pub enum DataRole {
     Dfp = 1,
 }
 
-/// Specification revision (`header` bit[7:6]).
+/// Specification revision (`header` bits 7:6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SpecRev {

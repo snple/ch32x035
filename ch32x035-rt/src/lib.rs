@@ -29,7 +29,7 @@
 //! This crate ships `link.x`, which `INCLUDE memory.x` (from the application)
 //! and `INCLUDE device.x` for the device-specific interrupt handler symbols.
 //! `device.x` is **not** provided by this crate: it is generated and exposed by
-//! [`ch32x035-pac`]'s build script (`cargo:rustc-link-search`).
+//! `ch32x035-pac`'s build script (`cargo:rustc-link-search`).
 //!
 //! As a result, any binary that links against `ch32x035-rt` (and uses its
 //! linker script) must also depend on `ch32x035-pac`.

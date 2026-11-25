@@ -15,8 +15,9 @@
 //! Both engines are **blocking**: [`poll`](PdSink::poll) advances the state
 //! machine and busy-waits (with the supplied [`DelayUs`]) while waiting for
 //! messages or timeouts. CC detection is simplified (a single 0.22 V
-//! comparator via [`Usbpd::check_cc`]); production code may want the
-//! multi-threshold detection used by the WCH SDK.
+//! comparator via [`Usbpd::check_cc`](super::phy::Usbpd::check_cc));
+//! production code may want the multi-threshold detection used by the WCH
+//! SDK.
 //!
 //! # Example (sink)
 //!
