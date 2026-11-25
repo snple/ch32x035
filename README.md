@@ -18,7 +18,7 @@ ch32x035-examples   →  ch32x035-usb (USB device stack: UsbBus, device, CDC/HID
 | `ch32x035-pac` | Peripheral Access Crate. Generated from `ch32x035.svd` by the `xtask` generator (`cargo xtask gen-pac`). |
 | `ch32x035-rt` | Runtime support: RISC-V assembly/CSR access, PFIC interrupt controller, SysTick, reset handler + vector table, linker script (`link.x`). |
 | `ch32x035-macro` | Procedural macros: `#[main]`, `#[exception]`, `#[bind(IRQ)]`, `#[ramfunc]`. |
-| `ch32x035` | Hardware Abstraction Layer: `gpio`, `rcc`, `reset`, `uart`, `spi`, `i2c`, `adc`, `dma`, `timer`, `exti`, `afio`, `awu`, `opa`, `esig`, `usbpd`, `pwr`, `watchdog`, `flash`, `delay`, `time`, `interrupt`. |
+| `ch32x035` | Hardware Abstraction Layer: `gpio`, `rcc`, `reset`, `uart`, `spi`, `i2c`, `adc`, `dma`, `timer`, `exti`, `afio`, `awu`, `opa`, `esig`, `usbpd`, `pwr`, `watchdog`, `flash`, `delay`, `time`, `interrupt`, `pin`, `pins`. |
 | `ch32x035-usb` | USB **device** stack for the USBFS controller: `UsbfsBus` (bus layer) plus the shared [`usb-stack`](../../rp2350/usb-stack) core (`UsbDevice`, CDC-ACM, HID, GS_USB, i2c-tiny-usb, UAC), the same core used by `rp2350-usb`. |
 | `ch32x035-examples` | Peripheral examples, including `usb_cdc` (virtual serial echo). |
 | `xtask` | PAC code generator (adapted from rp2350). |
@@ -125,6 +125,42 @@ Switch to RISC-V mode with the **ModeS button**:
 4. Short-press ModeS to cycle modes — RISC-V = blue LED **off** when idle,
    DAP = blue LED **on** — then long-press ~2 s to confirm.
 5. Verify with `probe-rs list`: the entry should no longer show `(CMSIS-DAP)`.
+
+## Pin model
+
+Two modules describe and constrain the pads, in the style of `rp2350`:
+
+- [`pin`](ch32x035/src/pin.rs) — the data: the `AFIO_PCFR1` remap tables
+  (`USART1`–`USART4`, `I2C1`, `SPI1`, `TIM1`–`TIM3`, `PIOC`), the ADC channels
+  (`ADC_IN0`–`ADC_IN13`), the analog roles (OPA1/OPA2 inputs and outputs,
+  CMP1–CMP3 inputs and outputs, USB D±, PD CC1/CC2, MCO, SWD), the pads shared
+  by two logical pins (`SHARED`) and which model bonds each pad out.
+- `pins` — the constraints: one trait per signal (`Usart1TxPin`, `I2c1SclPin`,
+  `Spi1MisoPin`, `Tim1Ch1Pin`, `Tim2Ch1NPin`, `AdcPin`, `Opa1PosPin`,
+  `Cmp2NegPin`, …). Each implementation is verified against `pin` at compile
+  time, and every table entry is asserted against the datasheet model figures
+  (I/O pads and ADC channels per package).
+
+Typed constructors derive the remap value from the pins, so a mis-wired bus
+fails to compile (wrong pin) or panics at init (no shared remap):
+
+```rust
+let mut tx = board.pins.pb::<0>();
+let mut rx = board.pins.pb::<1>();
+let mut afio = Afio::init(dp.AFIO, &mut rcc);
+let uart = Uart4::init_with_pins(
+    dp.UART4, &mut tx, &mut rx, &mut afio, &mut rcc, board.clocks,
+    Config::default(),
+);
+
+let mut ain = board.pins.pa::<0>();
+let value = adc.read_pin(&mut ain); // ADC_IN0, taken from the pin type
+```
+
+`Pins::pa/pb/pc` still rejects pads that the *selected* package does not bond
+out, and `pin::desc(port, pin)` reports the bonded models and ADC channel at
+runtime, and `package::GPIO_PADS` / `package::ADC_CHANNELS` report the
+per-package pad and channel counts.
 
 ## Key facts
 

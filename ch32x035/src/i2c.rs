@@ -44,6 +44,7 @@
 //! ```
 
 use crate::Steal;
+use crate::afio::Afio;
 use crate::dma::{DataSize, DmaChannel, DmaDir};
 use crate::pac;
 use crate::rcc::{Clocks, Rcc};
@@ -177,6 +178,31 @@ pub struct I2c1 {
 }
 
 impl I2c1 {
+    /// Create a new I2C1 master from typed pins.
+    ///
+    /// SCL/SDA must be pins that really carry those I2C1 signals and must
+    /// share one `I2C1_RM` value.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the two pins share no remap value.
+    pub fn init_with_pins(
+        i2c: pac::I2C1,
+        scl: &mut impl crate::pins::I2c1SclPin,
+        sda: &mut impl crate::pins::I2c1SdaPin,
+        afio: &mut Afio,
+        rcc: &mut Rcc,
+        clocks: Clocks,
+        config: Config,
+    ) -> Self {
+        let remap =
+            crate::pins::i2c1_remap(scl, sda).expect("I2C1 SCL/SDA pins share no I2C1_RM value");
+        scl.configure_scl();
+        sda.configure_sda();
+        afio.set_i2c1_remap_code(remap);
+        Self::init(i2c, rcc, clocks, config)
+    }
+
     /// Create a new I2C1 master, resetting and clock-enabling the peripheral.
     pub fn init(i2c: pac::I2C1, rcc: &mut Rcc, clocks: Clocks, config: Config) -> Self {
         i2c.init(rcc);

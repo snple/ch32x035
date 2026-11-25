@@ -18,6 +18,7 @@
 use core::fmt;
 
 use crate::Steal;
+use crate::afio::Afio;
 use crate::dma::{DataSize, DmaChannel, DmaDir};
 use crate::pac;
 use crate::rcc::{Clocks, Rcc};
@@ -156,7 +157,8 @@ pub enum Error {
 
 /// Generate a UART driver type for a PAC USART peripheral.
 macro_rules! impl_uart {
-    ($name:ident, $periph:ty, $base:expr, $pclk:expr) => {
+    ($name:ident, $periph:ty, $base:expr, $pclk:expr,
+     $tx:path, $rx:path, $remap:path, $set_remap:ident) => {
         /// Blocking UART driver
         pub struct $name {
             uart: $periph,
@@ -164,6 +166,31 @@ macro_rules! impl_uart {
         }
 
         impl $name {
+            /// Create a new UART driver from typed pins.
+            ///
+            /// Only pins that really carry this USART's TX/RX signal implement
+            /// the pin traits, and the `AFIO_PCFR1` remap value is derived from
+            /// the pair, so a mis-wired port does not compile.
+            ///
+            /// # Panics
+            ///
+            /// Panics when the two pins share no remap value.
+            pub fn init_with_pins(
+                uart: $periph,
+                tx: &mut impl $tx,
+                rx: &mut impl $rx,
+                afio: &mut Afio,
+                rcc: &mut Rcc,
+                clocks: Clocks,
+                config: Config,
+            ) -> Self {
+                let remap = $remap(tx, rx).expect("UART TX/RX pins share no remap value");
+                tx.configure_tx();
+                rx.configure_rx();
+                afio.$set_remap(remap);
+                Self::init(uart, rcc, clocks, config)
+            }
+
             /// Create a new UART driver, resetting and clock-enabling the
             /// peripheral and applying `config`.
             pub fn init(uart: $periph, rcc: &mut Rcc, clocks: Clocks, config: Config) -> Self {
@@ -586,15 +613,43 @@ macro_rules! impl_uart {
     };
 }
 
-impl_uart!(Uart1, pac::USART1, pac::usart1::BASE, |clocks: &Clocks| {
-    clocks.apb2_hz()
-});
-impl_uart!(Uart2, pac::USART2, pac::usart2::BASE, |clocks: &Clocks| {
-    clocks.apb1_hz()
-});
-impl_uart!(Uart3, pac::USART3, pac::usart3::BASE, |clocks: &Clocks| {
-    clocks.apb1_hz()
-});
-impl_uart!(Uart4, pac::UART4, pac::uart4::BASE, |clocks: &Clocks| {
-    clocks.apb1_hz()
-});
+impl_uart!(
+    Uart1,
+    pac::USART1,
+    pac::usart1::BASE,
+    |clocks: &Clocks| { clocks.apb2_hz() },
+    crate::pins::Usart1TxPin,
+    crate::pins::Usart1RxPin,
+    crate::pins::usart1_remap,
+    set_usart1_remap_code
+);
+impl_uart!(
+    Uart2,
+    pac::USART2,
+    pac::usart2::BASE,
+    |clocks: &Clocks| { clocks.apb1_hz() },
+    crate::pins::Usart2TxPin,
+    crate::pins::Usart2RxPin,
+    crate::pins::usart2_remap,
+    set_usart2_remap_code
+);
+impl_uart!(
+    Uart3,
+    pac::USART3,
+    pac::usart3::BASE,
+    |clocks: &Clocks| { clocks.apb1_hz() },
+    crate::pins::Usart3TxPin,
+    crate::pins::Usart3RxPin,
+    crate::pins::usart3_remap,
+    set_usart3_remap_code
+);
+impl_uart!(
+    Uart4,
+    pac::UART4,
+    pac::uart4::BASE,
+    |clocks: &Clocks| { clocks.apb1_hz() },
+    crate::pins::Usart4TxPin,
+    crate::pins::Usart4RxPin,
+    crate::pins::usart4_remap,
+    set_usart4_remap_code
+);

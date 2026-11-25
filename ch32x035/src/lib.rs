@@ -43,6 +43,8 @@ pub mod interrupt;
 pub mod kit;
 pub mod opa;
 pub mod package;
+pub mod pin;
+pub mod pins;
 pub mod pwr;
 pub mod rcc;
 pub mod reset;

@@ -52,6 +52,10 @@ name = "usbpd_sniffer"
 path = "src/usbpd_sniffer.rs"
 
 [[bin]]
+name = "typed_pins"
+path = "src/typed_pins.rs"
+
+[[bin]]
 name = "rtos_min"
 path = "src/rtos_min.rs"
 

@@ -15,6 +15,7 @@
 //! ```
 
 use crate::Steal;
+use crate::afio::Afio;
 use crate::dma::{DataSize, DmaChannel, DmaDir};
 use crate::pac;
 use crate::rcc::{Clocks, Rcc};
@@ -152,6 +153,35 @@ pub struct Spi1 {
 }
 
 impl Spi1 {
+    /// Create a new SPI1 master from typed pins.
+    ///
+    /// SCK/MISO/MOSI must be pins that really carry those SPI1 signals and
+    /// must share one `SPI1_RM` value. NSS is not taken: the driver uses
+    /// software slave management, so the chip-select pad stays a plain GPIO.
+    ///
+    /// # Panics
+    ///
+    /// Panics when the three pins share no remap value.
+    #[allow(clippy::too_many_arguments)]
+    pub fn init_with_pins(
+        spi: pac::SPI1,
+        sck: &mut impl crate::pins::Spi1SckPin,
+        miso: &mut impl crate::pins::Spi1MisoPin,
+        mosi: &mut impl crate::pins::Spi1MosiPin,
+        afio: &mut Afio,
+        rcc: &mut Rcc,
+        clocks: Clocks,
+        config: Config,
+    ) -> Self {
+        let remap = crate::pins::spi1_remap(sck, miso, mosi)
+            .expect("SPI1 SCK/MISO/MOSI pins share no SPI1_RM value");
+        sck.configure_sck();
+        miso.configure_miso();
+        mosi.configure_mosi();
+        afio.set_spi1_remap_code(remap);
+        Self::init(spi, rcc, clocks, config)
+    }
+
     /// Create a new SPI1 master, resetting and clock-enabling the peripheral.
     pub fn init(spi: pac::SPI1, rcc: &mut Rcc, clocks: Clocks, config: Config) -> Self {
         spi.init(rcc);

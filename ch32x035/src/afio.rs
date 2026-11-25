@@ -276,10 +276,24 @@ impl Afio {
         self.afio.pcfr1.write_spi1rm(remap as u32);
     }
 
+    /// Set the raw `SPI1_RM` code (used by the [`crate::pins`] remap
+    /// helpers).
+    #[inline(always)]
+    pub fn set_spi1_remap_code(&mut self, code: u8) {
+        self.afio.pcfr1.write_spi1rm(code as u32);
+    }
+
     /// Set the I2C1 pin remapping.
     #[inline(always)]
     pub fn set_i2c1_remap(&mut self, remap: I2c1Remap) {
         self.afio.pcfr1.write_i2c1rm(remap as u32);
+    }
+
+    /// Set the raw `I2C1_RM` code (used by the
+    /// [`crate::pins`] remap helpers).
+    #[inline(always)]
+    pub fn set_i2c1_remap_code(&mut self, code: u8) {
+        self.afio.pcfr1.write_i2c1rm(code as u32);
     }
 
     /// Set the USART1 pin remapping.
@@ -288,10 +302,24 @@ impl Afio {
         self.afio.pcfr1.write_usart1rm(remap as u32);
     }
 
+    /// Set the raw `USART1_RM` code (used by the
+    /// [`crate::pins`] remap helpers).
+    #[inline(always)]
+    pub fn set_usart1_remap_code(&mut self, code: u8) {
+        self.afio.pcfr1.write_usart1rm(code as u32);
+    }
+
     /// Set the USART2 pin remapping.
     #[inline(always)]
     pub fn set_usart2_remap(&mut self, remap: Usart2Remap) {
         self.afio.pcfr1.write_usart2rm(remap as u32);
+    }
+
+    /// Set the raw `USART2_RM` code (used by the
+    /// [`crate::pins`] remap helpers).
+    #[inline(always)]
+    pub fn set_usart2_remap_code(&mut self, code: u8) {
+        self.afio.pcfr1.write_usart2rm(code as u32);
     }
 
     /// Set the USART3 pin remapping.
@@ -300,10 +328,24 @@ impl Afio {
         self.afio.pcfr1.write_usart3rm(remap as u32);
     }
 
+    /// Set the raw `USART3_RM` code (used by the
+    /// [`crate::pins`] remap helpers).
+    #[inline(always)]
+    pub fn set_usart3_remap_code(&mut self, code: u8) {
+        self.afio.pcfr1.write_usart3rm(code as u32);
+    }
+
     /// Set the USART4 pin remapping.
     #[inline(always)]
     pub fn set_usart4_remap(&mut self, remap: Usart4Remap) {
         self.afio.pcfr1.write_usart4rm(remap as u32);
+    }
+
+    /// Set the raw `USART4_RM` code (used by the
+    /// [`crate::pins`] remap helpers).
+    #[inline(always)]
+    pub fn set_usart4_remap_code(&mut self, code: u8) {
+        self.afio.pcfr1.write_usart4rm(code as u32);
     }
 
     /// Set the TIM1 pin remapping.
@@ -312,16 +354,37 @@ impl Afio {
         self.afio.pcfr1.write_tim1rm(remap as u32);
     }
 
+    /// Set the raw `TIM1_RM` code (used by the
+    /// [`crate::pins`] remap helpers).
+    #[inline(always)]
+    pub fn set_tim1_remap_code(&mut self, code: u8) {
+        self.afio.pcfr1.write_tim1rm(code as u32);
+    }
+
     /// Set the TIM2 pin remapping.
     #[inline(always)]
     pub fn set_tim2_remap(&mut self, remap: Tim2Remap) {
         self.afio.pcfr1.write_tim2rm(remap as u32);
     }
 
+    /// Set the raw `TIM2_RM` code (used by the
+    /// [`crate::pins`] remap helpers).
+    #[inline(always)]
+    pub fn set_tim2_remap_code(&mut self, code: u8) {
+        self.afio.pcfr1.write_tim2rm(code as u32);
+    }
+
     /// Set the TIM3 pin remapping.
     #[inline(always)]
     pub fn set_tim3_remap(&mut self, remap: Tim3Remap) {
         self.afio.pcfr1.write_tim3rm(remap as u32);
+    }
+
+    /// Set the raw `TIM3_RM` code (used by the
+    /// [`crate::pins`] remap helpers).
+    #[inline(always)]
+    pub fn set_tim3_remap_code(&mut self, code: u8) {
+        self.afio.pcfr1.write_tim3rm(code as u32);
     }
 
     /// Remap the PIOC interface: `true` maps interface 0 to PC7 (default

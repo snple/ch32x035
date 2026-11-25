@@ -128,6 +128,16 @@ impl Adc {
         })
     }
 
+    /// Perform a single conversion on an ADC pin.
+    ///
+    /// The channel is taken from the pin type, so only pins that are really
+    /// wired to the ADC can be passed (see [`crate::pins::AdcPin`]). The pad
+    /// is configured as an analog input.
+    pub fn read_pin<P: crate::pins::AdcPin>(&mut self, pin: &mut P) -> u16 {
+        pin.configure_adc_pin();
+        self.read_channel(P::CHANNEL)
+    }
+
     /// Perform a single conversion on the given channel (0..=17).
     ///
     /// Blocks until the conversion completes and returns the 12-bit result.
