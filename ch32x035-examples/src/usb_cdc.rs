@@ -24,7 +24,7 @@ use defmt_rtt as _;
 use ch32x035::afio::{Afio, UsbPhySupply};
 use ch32x035::{Clocks, Rcc, main, pac};
 use ch32x035_usb::ch32x035::{Config, UsbfsBus};
-use ch32x035_usb::class::cdc_acm::CdcAcm;
+use ch32x035_usb::device::class::cdc_acm::CdcAcm;
 use ch32x035_usb::{UsbBusAllocator, UsbDeviceBuilder, UsbError};
 
 /// VID/PID of the example (pid.codes test VID 0x1209).

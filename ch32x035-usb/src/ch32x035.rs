@@ -24,9 +24,9 @@ use ch32x035::afio::Afio;
 use ch32x035::pac;
 use ch32x035::rcc::{AhbPeriph, AhbReset, Rcc};
 
-use crate::bus::{PollResult, UsbBus};
+use crate::device::bus::{PollResult, UsbBus};
+use crate::device::error::{UsbError, UsbResult};
 use crate::endpoint::{Direction, EndpointAddress, EndpointType};
-use crate::error::{UsbError, UsbResult};
 
 // ─── Hardware constants (WCH `ch32x035_usb.h`) ───────────────────────────────
 

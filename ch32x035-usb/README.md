@@ -4,8 +4,10 @@ USB device stack for the WCH CH32X035 (USBFS full-speed device controller).
 
 The MCU-independent part of the stack lives in the shared
 [`usb-stack`](../../../rp2350/usb-stack) crate (the same core used by `rp2350-usb`)
-and is re-exported here, so `ch32x035_usb::bus::…`,
-`ch32x035_usb::class::…`, … are the generic implementation.
+and is re-exported here under `ch32x035_usb::device`, so
+`ch32x035_usb::device::bus::…`, `ch32x035_usb::device::class::…`, … are the
+generic implementation. The vocabulary shared with the host side
+(`ch32x035_usb::{endpoint, descriptor, request}`) is re-exported too.
 
 ## Features
 
@@ -17,13 +19,13 @@ and is re-exported here, so `ch32x035_usb::bus::…`,
   standard-request handling (SET_ADDRESS, SET_CONFIGURATION,
   GET/SET_INTERFACE, CLEAR/SET_FEATURE, …).
 - **Classes** (`usb-stack`) —
-  - `class::cdc_acm::CdcAcm`: virtual serial port (2 interfaces, interrupt IN +
+  - `device::class::cdc_acm::CdcAcm`: virtual serial port (2 interfaces, interrupt IN +
     bulk IN/OUT).
-  - `class::hid::{HidClass, keyboard, mouse, custom, power}`: HID interfaces
+  - `device::class::hid::{HidClass, keyboard, mouse, custom, power}`: HID interfaces
     with caller-supplied or boot report descriptors.
-  - `class::gs_usb::GsUsbClass`: candleLight/GS_USB CAN adapter.
-  - `class::i2c_tiny_usb::I2cTinyUsb`: i2c-tiny-usb I2C bridge.
-  - `class::uac::AudioClass`: USB Audio Class 1.0.
+  - `device::class::gs_usb::GsUsbClass`: candleLight/GS_USB CAN adapter.
+  - `device::class::i2c_tiny_usb::I2cTinyUsb`: i2c-tiny-usb I2C bridge.
+  - `device::class::uac::AudioClass`: USB Audio Class 1.0.
 - No heap, no `usb-device` dependency, `defmt` logging optional.
 
 ## Quick start
@@ -32,7 +34,7 @@ and is re-exported here, so `ch32x035_usb::bus::…`,
 use ch32x035::afio::{Afio, UsbPhySupply};
 use ch32x035::gpio::Pins;
 use ch32x035_usb::ch32x035::{Config, UsbfsBus};
-use ch32x035_usb::class::cdc_acm::CdcAcm;
+use ch32x035_usb::device::class::cdc_acm::CdcAcm;
 use ch32x035_usb::{UsbBusAllocator, UsbDeviceBuilder};
 
 let mut rcc = Rcc::new(dp.RCC);

@@ -5,15 +5,15 @@
 //!
 //! The MCU-independent part of the stack (bus trait, control pipe, device
 //! state machine, CDC-ACM and HID classes) lives in the shared
-//! [`usb-stack`](https://github.com/snple/rp2350) crate and is re-exported here;
-//! this crate adds the [`UsbfsBus`] peripheral driver.
+//! [`usb-stack`](https://github.com/snple/usb-stack) crate and is re-exported
+//! here under [`device`]; this crate adds the [`UsbfsBus`] peripheral driver.
 //!
 //! ## Quick start
 //!
 //! ```ignore
 //! use ch32x035::afio::{Afio, UsbPhySupply};
 //! use ch32x035_usb::ch32x035::{Config, UsbfsBus};
-//! use ch32x035_usb::class::cdc_acm::CdcAcm;
+//! use ch32x035_usb::device::class::cdc_acm::CdcAcm;
 //! use ch32x035_usb::{UsbBusAllocator, UsbDeviceBuilder};
 //!
 //! let mut afio = Afio::init(dp.AFIO, &mut rcc);
@@ -48,15 +48,21 @@
 pub use usb_stack::log;
 
 // ── Shared stack ──────────────────────────────────────────────────────────────
+//
+// Everything that is MCU-independent lives in `usb-stack`. The vocabulary both
+// directions of that crate share (`endpoint`, `descriptor`, `request`) sits at
+// its root; the device stack — bus trait, control pipe, state machine and
+// classes — lives under `device`.
 
-pub use usb_stack::{bus, class, control, descriptor, device, endpoint, error};
+pub use usb_stack::device;
 
-pub use usb_stack::{
-    BULK_MAX_PACKET_SIZE, CONTROL_MAX_PACKET_SIZE, DescriptorWriter, DeviceInfo, DeviceState,
-    Direction, EndpointAddress, EndpointIn, EndpointOut, EndpointType, In, InterfaceNumber,
-    IsoSynchronization, IsoUsage, Out, PollResult, StringIndex, UsbBus, UsbBusAllocator, UsbClass,
-    UsbDevice, UsbDeviceBuilder, UsbError, UsbResult,
+pub use usb_stack::device::{
+    DescriptorWriter, DeviceInfo, DeviceState, Direction, Endpoint, EndpointAddress, EndpointIn,
+    EndpointOut, EndpointType, In, InterfaceNumber, IsoSynchronization, IsoUsage, Out, PollResult,
+    StringIndex, UsbBus, UsbBusAllocator, UsbClass, UsbDevice, UsbDeviceBuilder, UsbError,
+    UsbResult,
 };
+pub use usb_stack::{BULK_MAX_PACKET_SIZE, CONTROL_MAX_PACKET_SIZE, descriptor, endpoint, request};
 
 // ── CH32X035 implementation ───────────────────────────────────────────────────
 

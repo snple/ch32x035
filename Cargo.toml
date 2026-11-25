@@ -38,8 +38,8 @@ ch32x035 = { version = "0.1.0", path = "ch32x035", default-features = false }
 ch32x035-rt = { version = "0.1.0", path = "ch32x035-rt" }
 ch32x035-pac = { version = "0.1.0", path = "ch32x035-pac" }
 ch32x035-macro = { version = "0.1.0", path = "ch32x035-macro" }
-ch32x035-usb = { version = "0.1.0", path = "ch32x035-usb", default-features = false }
-usb-stack = { version = "0.1.0", default-features = false }
+ch32x035-usb = { version = "0.2.0", path = "ch32x035-usb", default-features = false }
+usb-stack = { version = "0.2.0", default-features = false }
 ch32x035-rtos = { path = "ch32x035-rtos", default-features = false }
 ch32x035-rtos-macro = { path = "ch32x035-rtos-macro" }
 
